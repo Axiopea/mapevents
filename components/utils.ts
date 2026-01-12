@@ -3,7 +3,7 @@ import type { EventItem } from "./types";
 export function toFullCalendarEvents(items: EventItem[]) {
   return items.map((e) => ({
     id: e.id,
-    title: `${e.city}: ${e.title}`,
+    title: `${e.city}: ${e.place} ${e.title}`,
     start: e.startAt,
     end: e.endAt ?? undefined,
     url: e.sourceUrl ?? undefined,
