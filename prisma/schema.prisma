@@ -1,0 +1,61 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Event source: manually or Facebook
+enum EventSource {
+  manual
+  facebook
+  other
+}
+
+// Moderation status
+enum EventStatus {
+  draft
+  pending
+  approved
+  rejected
+}
+
+model Event {
+  id          String      @id @default(cuid())
+
+  title       String
+  description String?     @db.Text
+
+  countryCode String      @db.VarChar(2) // "PL", "DE"
+  city        String
+  place       String?
+
+  startAt     DateTime    @db.Timestamptz(6)
+  endAt       DateTime?   @db.Timestamptz(6)
+
+  lat         Decimal     @db.Decimal(9, 6)
+  lng         Decimal     @db.Decimal(9, 6)
+
+  source      EventSource @default(manual)
+  sourceId    String?     @db.VarChar(255) // for example Facebook Id
+  sourceUrl   String?     @db.Text
+
+  rawPayload  Json?
+
+  status      EventStatus @default(draft)
+
+  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+
+  @@index([startAt])
+  @@index([city, startAt])
+  @@index([status, startAt])
+
+}

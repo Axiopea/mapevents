@@ -15,8 +15,9 @@ function groupByCity(items: EventItem[]) {
   const map = new Map<string, EventItem[]>();
 
   for (const e of items) {
-    // key by city + coordinates
-    const key = `${e.city}__${e.lat.toFixed(4)}__${e.lng.toFixed(4)}`;
+    // const key = `${e.city}__${e.lat.toFixed(4)}__${e.lng.toFixed(4)}`; //key by city + coordinates
+    // key by city 
+    const key = `${e.city}`;
     const arr = map.get(key) ?? [];
     arr.push(e);
     map.set(key, arr);
