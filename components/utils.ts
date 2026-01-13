@@ -6,7 +6,7 @@ export function toFullCalendarEvents(items: EventItem[]) {
     title: `${e.city}: ${e.place} ${e.title}`,
     start: e.startAt,
     end: e.endAt ?? undefined,
-    url: e.sourceUrl ?? undefined,
+//    url: e.sourceUrl ?? undefined,
     extendedProps: e,
   }));
 }

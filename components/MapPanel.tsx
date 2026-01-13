@@ -169,7 +169,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
 
       const listHtml = events
       .map((e) => {
-        const t = new Date(e.startAt).toLocaleTimeString("en-us", {
+        const tSt = new Date(e.startAt).toLocaleTimeString("en-us", {
           hour: "2-digit",
           minute: "2-digit",
           timeZone: "UTC",
@@ -177,7 +177,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         const link = e.sourceUrl
           ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
           : "";
-        return `<div style="margin-top:6px"><strong>${t}</strong>   ${escapeHtml(e.title)}${link}</div>`;
+        return `<div style="margin-top:6px"><strong>${tSt}</strong>   ${escapeHtml(e.title)}${link}</div>`;
       })
       .join("");
 
@@ -212,6 +212,16 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     const e = items.find((x) => x.id === focusId);
     if (!e) return;
 
+    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl");
+
+    const start = new Date(e.startAt);
+    const startTime = start.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
+
+    const end = e.endAt ? new Date(e.endAt) : null;
+    const endTime = end 
+     ? end.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"})
+     : "";
+
     popupRef.current?.remove();
     popupRef.current = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
@@ -219,7 +229,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         `<div style="min-width:220px">
           <strong>${escapeHtml(e.title)}</strong>
           <div>${escapeHtml(e.city)}${e.place ? "   " + escapeHtml(e.place) : ""}</div>
-          <div style="opacity:.8;margin-top:6px">${new Date(e.startAt).toLocaleString("pl-PL")}</div>
+          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime} - ${endTime} </div>
         </div>`
       )
       .addTo(map);

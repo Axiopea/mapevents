@@ -22,26 +22,14 @@ function formatDateTimeRange(arg: EventContentArg) {
   if (!start) return "";
 
   // Date + time start
-  const dateStr = start.toLocaleDateString("en-us", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const dateStr = start.toLocaleDateString("en-us", {year: "numeric", month: "2-digit", day: "2-digit"});
 
-  const startTime = start.toLocaleTimeString("pl-pl", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone:"UTC"
-  });
+  const startTime = start.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
 
   // No end - show only time start
   if (!end) return `${dateStr} ${startTime}`;
 
-  const endTime = end.toLocaleTimeString("pl-pl", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone:"UTC"
-  });
+  const endTime = end.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
 
   return `${startTime} ${endTime}`;
 }
@@ -65,12 +53,12 @@ export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Pr
       eventDidMount={(info: EventMountArg) => {
       const ep: any = info.event.extendedProps;
 
-      const city = ep?.city ?? "";
+      const city  = ep?.city ?? "";
       const place = ep?.place ?? "";
       const title = ep?.title ?? info.event.title ?? "";
-      const url = ep?.sourceUrl ?? info.event.url ?? "";
+      const url   = ep?.sourceUrl ?? info.event.url ?? "";
 
-      info.el.setAttribute("title", `${city} ${place}$ ${title}${url ? `\n${url}` : ""}`);
+      info.el.setAttribute("title", `${city} ${place} ${title}${url ? `\n${url}` : ""}`);
       }}
 
       datesSet={(arg: DatesSetArg) => {
@@ -84,8 +72,12 @@ export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Pr
       }}
 
       eventContent={(arg) => {
+
         // we draw start/end time 
         const when = formatDateTimeRange(arg);
+
+        const ep: any = arg.event.extendedProps;
+        const hasUrl = !!ep?.sourceUrl;
 
         return (
           <div style={{ maxWidth: "100%", overflow: "hidden" }}>
@@ -110,6 +102,7 @@ export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Pr
                 }}
               >
                 {arg.event.title}
+                {hasUrl ? <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.75 }}>🔗</span> : null}
               </span>
             </div>
           </div>
