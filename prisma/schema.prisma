@@ -10,6 +10,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // Event source: manually or Facebook
@@ -58,4 +59,5 @@ model Event {
   @@index([city, startAt])
   @@index([status, startAt])
 
+  @@unique([source, sourceId])
 }

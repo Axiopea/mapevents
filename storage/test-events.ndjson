@@ -1,0 +1,2 @@
+{"source":"facebook","sourceEventId":"fb_1","title":"Test Event 1","description":"Imported from file","countryCode":"PL","city":"Warsaw","place":"Center","startAt":"2026-01-14T18:00:00Z","endAt":null,"lat":52.2297,"lng":21.0122,"sourceUrl":"https://facebook.com/events/fb_1","raw":{"any":"payload"}}
+{"source":"facebook","sourceEventId":"fb_2","title":"Test Event 2","countryCode":"PL","city":"Warsaw","place":"Park","startAt":"2026-01-15T12:00:00Z","endAt":null,"lat":52.2301,"lng":21.0101,"sourceUrl":"https://facebook.com/events/fb_2","raw":{"x":1}}

@@ -1,0 +1,33 @@
+// build/dev
+npm run build
+npm run dev
+
+// git 
+git status
+git add .
+git commit -m "Some Comments about check-in"
+git push
+
+// prisma
+docker exec -it events-postgres psql -U postgres -d eventsdb
+npx prisma studio
+
+npx prisma migrate dev 
+npx prisma generate
+
+// test import script
+npx tsx scripts/import-events.ts storage/test-events.ndjson
+
+// test generation ndjson from Facebook
+npx tsx scripts/fetch-facebook.ts storage/facebook.ndjson
+
+// local db backup
+//export
+docker exec -t events-postgres pg_dump -U postgres -d eventsdb -Fc -f /tmp/dump.dump
+docker cp events-postgres:/tmp/dump.dump .\dump.dump
+
+//import
+$DB="postgres://4c9c6482008f84b8c9f8fe41e8c3af5fcd3e8a82024e7e6c2e9e2118237c7a9d:sk_R-ZxcUkJmYEaQj4Og8PcK@db.prisma.io:5432/postgres?sslmode=require"
+
+docker run --rm -i -v "${PWD}:/work" -w /work postgres:16 `
+  pg_restore --clean --if-exists --no-owner --no-privileges -d "$DB" dump.dump
