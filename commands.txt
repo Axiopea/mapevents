@@ -22,12 +22,10 @@ npx tsx scripts/import-events.ts storage/test-events.ndjson
 npx tsx scripts/fetch-facebook.ts storage/facebook.ndjson
 
 // local db backup
-//export
+//export (2 steps, 1st - create dump inside container, 2nd - copy dump to project folder)
 docker exec -t events-postgres pg_dump -U postgres -d eventsdb -Fc -f /tmp/dump.dump
 docker cp events-postgres:/tmp/dump.dump .\dump.dump
 
-//import
+//import (2 steps, at first DB variable, then pg_restore in containter
 $DB="postgres://4c9c6482008f84b8c9f8fe41e8c3af5fcd3e8a82024e7e6c2e9e2118237c7a9d:sk_R-ZxcUkJmYEaQj4Og8PcK@db.prisma.io:5432/postgres?sslmode=require"
-
-docker run --rm -i -v "${PWD}:/work" -w /work postgres:16 `
-  pg_restore --clean --if-exists --no-owner --no-privileges -d "$DB" dump.dump
+docker run --rm -i -v "${PWD}:/work" -w /work postgres:16 pg_restore --clean --if-exists --no-owner --no-privileges -d "$DB" dump.dump
