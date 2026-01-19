@@ -21,6 +21,9 @@ npx tsx scripts/import-events.ts storage/test-events.ndjson
 // test generation ndjson from Facebook
 npx tsx scripts/fetch-facebook.ts storage/facebook.ndjson
 
+// test sync-run table when import events from Facebook (mocked by "facebook.ndjson" file)
+npx tsx scripts/sync-facebook.ts storage/facebook.ndjson
+
 // local db backup
 //export (2 steps, 1st - create dump inside container, 2nd - copy dump to project folder)
 docker exec -t events-postgres pg_dump -U postgres -d eventsdb -Fc -f /tmp/dump.dump
