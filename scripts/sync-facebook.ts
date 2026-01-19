@@ -131,6 +131,8 @@ export async function syncFacebook() {
       },
     });
 
+    console.info("Facebook sync finished");
+
     return { ok: true, fetched, created, updated };
   } catch (err: any) {
     await prisma.syncRun.update({
@@ -141,6 +143,8 @@ export async function syncFacebook() {
         errorMessage: err?.stack ?? String(err),
       },
     });
+
+    console.warn("Facebook sync failed");
 
     throw err;
   }
