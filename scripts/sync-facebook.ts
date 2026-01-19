@@ -1,29 +1,7 @@
 import "dotenv/config"; // to take URL connection from .env
-import fs from "node:fs";
-import readline from "node:readline";
+import { fetchFacebookPageEvents, FacebookEventMapped } from "@/scripts/facebookGraph";
 import { EventSource, EventStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-
-type RawFacebookEvent = {
-  source: "manual" | "facebook" | "other";
-  sourceEventId?: string;
-
-  title: string;
-  description?: string;
-
-  countryCode: string;
-  city: string;
-  place?: string;
-
-  startAt: string;
-  endAt?: string | null;
-
-  lat: number;
-  lng: number;
-
-  sourceUrl?: string;
-  raw?: unknown;  // rawPayLoad
-};
 
 function isoPlusDays(daysFromNow: number, hour: number, minute = 0) {
   const d = new Date();
@@ -32,12 +10,11 @@ function isoPlusDays(daysFromNow: number, hour: number, minute = 0) {
   return d.toISOString(); // ok for MVP; later we need to preserve +01:00 formatting
 }
 
-async function fetchMockFacebook(): Promise<RawFacebookEvent[]> {
+async function fetchMockFacebook(): Promise<FacebookEventMapped[]> {
   const warsaw = { lat: 52.2297, lng: 21.0122 };
 
     return [
     {
-      source: "facebook",
       sourceEventId: "fb_mock_001",
       sourceUrl: "https://facebook.com/events/fb_mock_001",
       title: "Tech Meetup: MapEvents (Mock)",
@@ -57,7 +34,6 @@ async function fetchMockFacebook(): Promise<RawFacebookEvent[]> {
       },
     },
     {
-      source: "facebook",
       sourceEventId: "fb_mock_002",
       sourceUrl: "https://facebook.com/events/fb_mock_002",
       title: "Open Air Concert (Mock)",
@@ -76,7 +52,6 @@ async function fetchMockFacebook(): Promise<RawFacebookEvent[]> {
       },
     },
     {
-      source: "facebook",
       sourceEventId: "fb_mock_003",
       sourceUrl: "https://facebook.com/events/fb_mock_003",
       title: "Art Exhibition Opening (Mock)",
@@ -114,7 +89,15 @@ export async function syncFacebook() {
   let skipped = 0;
 
   try {
-    const events: RawFacebookEvent[] = await fetchMockFacebook();
+    //const events: FacebookEventMapped[] = await fetchMockFacebook();
+
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    const until = new Date();
+    until.setDate(until.getDate() + 90);
+
+    const events: FacebookEventMapped[] = await fetchFacebookPageEvents({ since, until, limit: 50, maxPages: 20 });
 
     fetched = events.length;
 
