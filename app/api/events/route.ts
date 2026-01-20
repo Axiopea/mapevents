@@ -75,6 +75,19 @@ export async function POST(req: Request) {
   const start = new Date(body.startAt);
   const end = body.endAt ? new Date(body.endAt) : null;
 
+  if (Number.isNaN(start.getTime())) {
+    return NextResponse.json({ error: "startAt is invalid" }, { status: 400 });
+  }
+
+  if (end) {
+    if (Number.isNaN(end.getTime())) {
+      return NextResponse.json({ error: "endAt is invalid" }, { status: 400 });
+    }
+    if (end.getTime() <= start.getTime()) {
+      return NextResponse.json({ error: "endAt must be after startAt" }, { status: 400 });
+    }
+  }
+
   const created = await prisma.event.create({
     data: {
       title: body.title.trim(),

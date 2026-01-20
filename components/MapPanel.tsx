@@ -158,6 +158,29 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
           const endAtLocal = String(fd.get("endAt") || "");
           const sourceUrl = String(fd.get("sourceUrl") || "");
 
+          if (!startAtLocal) {
+            errBox && (errBox.textContent = "Start date/time is required");
+            return;
+          }
+
+          const startMs = Date.parse(startAtLocal);
+          if (Number.isNaN(startMs)) {
+            errBox && (errBox.textContent = "Start date/time is invalid");
+            return;
+          }
+
+          if (endAtLocal) {
+            const endMs = Date.parse(endAtLocal);
+            if (Number.isNaN(endMs)) {
+              errBox && (errBox.textContent = "End date/time is invalid");
+              return;
+            }
+            if (endMs <= startMs) {
+              errBox && (errBox.textContent = "End must be after Start");
+              return;
+            }
+          }
+
           // datetime-local -> ISO (важно!)
           // interpret as local time on client and convert to ISO
           const startIso = startAtLocal ? new Date(startAtLocal).toISOString() : "";
