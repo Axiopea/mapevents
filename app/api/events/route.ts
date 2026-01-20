@@ -23,7 +23,12 @@ export async function GET(req: Request) {
   const to = searchParams.get("to");     // ISO string
   const city = searchParams.get("city"); // optional
 
-  const where : Where = { status: "approved" };
+  const mode = searchParams.get("statusMode") ?? "approved";
+  
+  const where: Where = {};
+
+  if (mode === "approved") where.status = "approved";
+  else where.status = { not: "approved" };
 
   if (from || to) {
     where.startAt = {};

@@ -258,6 +258,9 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     const old = document.querySelectorAll(".evt-marker");
     old.forEach((n) => n.remove());
 
+    const oldGrp = document.querySelectorAll(".evt-cal-stack");
+    oldGrp.forEach((n) => n.remove());
+
     const groups = groupByCity(items);
 
     groups.forEach(({events}) => {
