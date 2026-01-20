@@ -84,11 +84,9 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
       const { lng, lat } = ev.lngLat;
       draftLngLatRef.current = { lng, lat };
 
-      // убираем старый черновик
       draftMarkerRef.current?.remove();
       popupRef.current?.remove();
 
-      // маленький маркер для "черновика"
       const el = document.createElement("div");
       el.style.width = "14px";
       el.style.height = "14px";
@@ -101,7 +99,6 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         .setLngLat([lng, lat])
         .addTo(map);
 
-      // popup с формой
       const html = `
         <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
           <div style="font-weight:800;margin-bottom:8px">New event</div>
@@ -337,8 +334,15 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
        ? `${first.city}: ${events.length} events`
        : `${first.city} - ${first.place} - ${first.title}`;
 
-      el.addEventListener("click", () => {
-        onMarkerClick?.(first.id);
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        
+        if (events.length === 1) {
+          openEventPopup(map, first);
+          onMarkerClick?.(first.id);
+          return;
+        }
 
       popupRef.current?.remove();
 
@@ -352,7 +356,37 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         const link = e.sourceUrl
           ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
           : "";
-        return `<div style="margin-top:6px"><strong>${tSt}</strong>   ${escapeHtml(e.title)}${link}</div>`;
+
+        const st = (e as any).status as string | undefined;
+
+        const controls =
+          st === "draft" || st === "pending"
+            ? `
+              <div style="margin-top:6px;display:flex;gap:8px">
+                <button data-action="approve" data-id="${e.id}"
+                  style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
+                  Approve
+                </button>
+                <button data-action="reject" data-id="${e.id}"
+                  style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
+                  Reject
+                </button>
+              </div>
+            `
+            : "";
+
+        return `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">
+            <div>
+              <strong>${tSt}</strong>
+              ${escapeHtml(e.title)}
+              ${statusBadge(st)}
+              ${link}
+            </div>
+            ${controls}
+          </div>
+        `;
+
       })
       .join("");
 
@@ -366,6 +400,50 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
             </div>`             
           )
           .addTo(map);
+
+          setTimeout(() => {
+            const root = popupRef.current?.getElement();
+            if (!root) return;
+
+            const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
+            if (!content) return;
+
+            content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
+              btn.addEventListener("click", async (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+
+                const b = btn as HTMLButtonElement;
+                const id = b.dataset.id!;
+                const action = b.dataset.action!; // approve|reject
+
+                const status = action === "approve" ? "approved" : "rejected";
+
+                b.disabled = true;
+                b.style.opacity = "0.7";
+
+                try {
+                  const r = await fetch(`/api/events/${id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status }),
+                  });
+
+                  if (!r.ok) {
+                    const j = await r.json().catch(() => ({}));
+                    throw new Error(j?.error || `HTTP ${r.status}`);
+                  }
+
+                  window.location.reload();
+                } catch (e) {
+                  console.error(e);
+                  b.disabled = false;
+                  b.style.opacity = "1";
+                  alert(String((e as any)?.message || e));
+                }
+              });
+            });
+          }, 0);
 
         map.easeTo({ center: [first.lng, first.lat], zoom: Math.max(map.getZoom(), 15) });
       });
@@ -381,35 +459,109 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
   }, [items, onMarkerClick]);
 
   // Focus on eventId (for example, clicked in calendar)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !focusId) return;
-    const e = items.find((x) => x.id === focusId);
-    if (!e) return;
-
-    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl");
+  function openEventPopup(map: MLMap, e: EventItem) {
+    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: "UTC" });
 
     const start = new Date(e.startAt);
-    const startTime = start.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
+    const startTime = start.toLocaleTimeString("pl-pl", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    });
 
     const end = e.endAt ? new Date(e.endAt) : null;
-    const endTime = end 
-     ? end.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"})
-     : "";
+    const endTime = end
+      ? end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })
+      : "";
+
+    const st = (e as any).status as string | undefined;
+
+    const controls =
+      st === "draft" || st === "pending"
+        ? `
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button data-action="approve" data-id="${e.id}"
+              style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
+              Approve
+            </button>
+            <button data-action="reject" data-id="${e.id}"
+              style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
+              Reject
+            </button>
+          </div>
+        `
+        : "";
 
     popupRef.current?.remove();
     popupRef.current = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
       .setHTML(
-        `<div style="min-width:220px">
-          <strong>${escapeHtml(e.title)}</strong>
-          <div>${escapeHtml(e.city)}${e.place ? "   " + escapeHtml(e.place) : ""}</div>
-          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime} - ${endTime} </div>
+        `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
+          <div style="display:flex;align-items:center;gap:8px">
+            <strong>${escapeHtml(e.title)}</strong>
+            ${statusBadge(st)}
+          </div>
+          <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
+          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          ${controls}
         </div>`
       )
       .addTo(map);
 
-    map.easeTo({ center: [e.lng, e.lat], zoom: Math.max(map.getZoom(), 10) });
+    setTimeout(() => {
+      const root = popupRef.current?.getElement();
+      if (!root) return;
+
+      const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
+      if (!content) return;
+
+      content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
+        btn.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+
+          const b = btn as HTMLButtonElement;
+          const id = b.dataset.id!;
+          const action = b.dataset.action!;
+          const nextStatus = action === "approve" ? "approved" : "rejected";
+
+          b.disabled = true;
+          b.style.opacity = "0.7";
+
+          try {
+            const r = await fetch(`/api/events/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: nextStatus }),
+            });
+
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              throw new Error(j?.error || `HTTP ${r.status}`);
+            }
+
+            window.location.reload();
+          } catch (e) {
+            console.error(e);
+            b.disabled = false;
+            b.style.opacity = "1";
+            alert(String((e as any)?.message || e));
+          }
+        });
+      });
+    }, 0);
+
+    map.easeTo({ center: [e.lng, e.lat], zoom: Math.max(map.getZoom(), 15) });
+  }
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusId) return;
+
+    const e = items.find((x) => x.id === focusId);
+    if (!e) return;
+
+    openEventPopup(map, e);
   }, [focusId, items]);
   
   return <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -444,3 +596,23 @@ function escapeHtml(s: string) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+function statusBadge(status?: string | null) {
+  if (!status || status === "approved") return "";
+  const color =
+    status === "draft" ? "#f59e0b" :
+    status === "pending" ? "#3b82f6" :
+    status === "rejected" ? "#ef4444" : "#111";
+
+  return `<span style="
+    display:inline-block;
+    font-size:12px;
+    font-weight:800;
+    padding:2px 8px;
+    border-radius:999px;
+    background:${color};
+    color:white;
+    margin-left:8px;
+  ">${escapeHtml(status)}</span>`;
+}
+

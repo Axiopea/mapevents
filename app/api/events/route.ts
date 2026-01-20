@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   const city = searchParams.get("city"); // optional
 
   const mode = searchParams.get("statusMode") ?? "approved";
-  
+
   const where: Where = {};
 
   if (mode === "approved") where.status = "approved";
@@ -55,6 +55,7 @@ export async function GET(req: Request) {
     lng: Number(e.lng),
     startAt: e.startAt.toISOString(),
     endAt: e.endAt ? e.endAt.toISOString() : null,
+    status: e.status,
     sourceUrl: e.sourceUrl,
   }));
 
@@ -119,6 +120,7 @@ export async function POST(req: Request) {
       lng: Number(created.lng),
       startAt: created.startAt.toISOString(),
       endAt: created.endAt ? created.endAt.toISOString() : null,
+      status: created.status,
       sourceUrl: created.sourceUrl,
     },
   });
