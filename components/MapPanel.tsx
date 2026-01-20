@@ -130,10 +130,27 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         .setHTML(html)
         .addTo(map);
 
-      // навешиваем обработчики на форму
       setTimeout(() => {
         const root = popupRef.current?.getElement();
         if (!root) return;
+
+        const inputCity = root.querySelector('input[name="city"]') as HTMLInputElement | null;
+        const inputPlace = root.querySelector('input[name="place"]') as HTMLInputElement | null;
+
+        (async () => {
+          try {
+            if (!draftLngLatRef.current) return;
+
+            const { lat, lng } = draftLngLatRef.current;
+
+            const r = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
+            if (!r.ok) return;
+            const j = await r.json();
+
+            if (inputCity && !inputCity.value && j.city) inputCity.value = j.city;
+            if (inputPlace && !inputPlace.value && j.place) inputPlace.value = j.place;
+          } catch {}
+        })();
 
         const form = root.querySelector("#evt-form") as HTMLFormElement | null;
         const btnCancel = root.querySelector("#evt-cancel") as HTMLButtonElement | null;
