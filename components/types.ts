@@ -7,6 +7,7 @@ export type EventItem = {
   lng: number;
   startAt: string; // ISO
   endAt: string | null; // ISO
+  status?: "draft" | "pending" | "approved" | "rejected";
   sourceUrl: string | null;
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { Map as MLMap, Popup } from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import type { EventItem } from "./types";
@@ -34,6 +34,13 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<Popup | null>(null);
+
+  const [addMode, setAddMode] = useState(false);
+  const draftMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const draftLngLatRef = useRef<{ lng: number; lat: number } | null>(null);
+
+  const addModeRef = useRef(false);
+  useEffect(() => { addModeRef.current = addMode; }, [addMode]);
 
   // Easy style OSM raster (without keys)
   const style = useMemo<StyleSpecification>(
@@ -71,6 +78,167 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
 
+    map.on("click", (ev) => {
+      if (!addModeRef.current) return;
+
+      const { lng, lat } = ev.lngLat;
+      draftLngLatRef.current = { lng, lat };
+
+      draftMarkerRef.current?.remove();
+      popupRef.current?.remove();
+
+      const el = document.createElement("div");
+      el.style.width = "14px";
+      el.style.height = "14px";
+      el.style.borderRadius = "999px";
+      el.style.background = "#2563eb";
+      el.style.border = "2px solid #fff";
+      el.style.boxShadow = "0 6px 20px rgba(0,0,0,.25)";
+
+      draftMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat([lng, lat])
+        .addTo(map);
+
+      const html = `
+        <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
+          <div style="font-weight:800;margin-bottom:8px">New event</div>
+          <form id="evt-form" style="display:flex;flex-direction:column;gap:8px">
+            <input name="title" placeholder="Title" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <input name="city" placeholder="City" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <input name="place" placeholder="Place (optional)" style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <label style="font-size:12px;opacity:.8">Start (UTC ISO or local)</label>
+            <input name="startAt" type="datetime-local" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <label style="font-size:12px;opacity:.8">End (optional)</label>
+            <input name="endAt" type="datetime-local" style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <input name="sourceUrl" placeholder="URL (optional)" style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+            <button type="submit" style="padding:10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
+              Save
+            </button>
+            <button type="button" id="evt-cancel" style="padding:10px;border-radius:10px;border:1px solid #ddd;background:#fff;font-weight:800;cursor:pointer">
+              Close
+            </button>
+          </form>
+          <div id="evt-err" style="margin-top:8px;color:#b91c1c;font-size:12px"></div>
+        </div>
+      `;
+
+      popupRef.current = new maplibregl.Popup({ offset: 14, closeOnClick: false })
+        .setLngLat([lng, lat])
+        .setHTML(html)
+        .addTo(map);
+
+      setTimeout(() => {
+        const root = popupRef.current?.getElement();
+        if (!root) return;
+
+        const inputCity = root.querySelector('input[name="city"]') as HTMLInputElement | null;
+        const inputPlace = root.querySelector('input[name="place"]') as HTMLInputElement | null;
+
+        (async () => {
+          try {
+            if (!draftLngLatRef.current) return;
+
+            const { lat, lng } = draftLngLatRef.current;
+
+            const r = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
+            if (!r.ok) return;
+            const j = await r.json();
+
+            if (inputCity && !inputCity.value && j.city) inputCity.value = j.city;
+            if (inputPlace && !inputPlace.value && j.place) inputPlace.value = j.place;
+          } catch {}
+        })();
+
+        const form = root.querySelector("#evt-form") as HTMLFormElement | null;
+        const btnCancel = root.querySelector("#evt-cancel") as HTMLButtonElement | null;
+        const errBox = root.querySelector("#evt-err") as HTMLDivElement | null;
+
+        btnCancel?.addEventListener("click", () => {
+          popupRef.current?.remove();
+          draftMarkerRef.current?.remove();
+          draftMarkerRef.current = null;
+          draftLngLatRef.current = null;
+        });
+
+        form?.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!draftLngLatRef.current) return;
+
+          const fd = new FormData(form);
+          const title = String(fd.get("title") || "");
+          const city = String(fd.get("city") || "");
+          const place = String(fd.get("place") || "");
+          const startAtLocal = String(fd.get("startAt") || "");
+          const endAtLocal = String(fd.get("endAt") || "");
+          const sourceUrl = String(fd.get("sourceUrl") || "");
+
+          if (!startAtLocal) {
+            errBox && (errBox.textContent = "Start date/time is required");
+            return;
+          }
+
+          const startMs = Date.parse(startAtLocal);
+          if (Number.isNaN(startMs)) {
+            errBox && (errBox.textContent = "Start date/time is invalid");
+            return;
+          }
+
+          if (endAtLocal) {
+            const endMs = Date.parse(endAtLocal);
+            if (Number.isNaN(endMs)) {
+              errBox && (errBox.textContent = "End date/time is invalid");
+              return;
+            }
+            if (endMs <= startMs) {
+              errBox && (errBox.textContent = "End must be after Start");
+              return;
+            }
+          }
+
+          // datetime-local -> ISO (важно!)
+          // interpret as local time on client and convert to ISO
+          const startIso = startAtLocal ? new Date(startAtLocal).toISOString() : "";
+          const endIso = endAtLocal ? new Date(endAtLocal).toISOString() : null;
+
+          try {
+            errBox && (errBox.textContent = "");
+
+            const res = await fetch("/api/events", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title,
+                city,
+                place: place || null,
+                startAt: startIso,
+                endAt: endIso,
+                lat: draftLngLatRef.current.lat,
+                lng: draftLngLatRef.current.lng,
+                sourceUrl: sourceUrl || null,
+              }),
+            });
+
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}));
+              throw new Error(j?.error || `HTTP ${res.status}`);
+            }
+
+            // закрыть popup/маркер и обновить страницу (MVP)
+            popupRef.current?.remove();
+            draftMarkerRef.current?.remove();
+            draftMarkerRef.current = null;
+            draftLngLatRef.current = null;
+
+            // самый простой рефреш данных
+            window.location.reload();
+          } catch (err: any) {
+            if (errBox) errBox.textContent = err?.message || "Failed to save";
+          }
+        });
+      }, 0);
+    });
+
+
     return () => {
       popupRef.current?.remove();
       map.remove();
@@ -86,6 +254,9 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     // Remove old markers
     const old = document.querySelectorAll(".evt-marker");
     old.forEach((n) => n.remove());
+
+    const oldGrp = document.querySelectorAll(".evt-cal-stack");
+    oldGrp.forEach((n) => n.remove());
 
     const groups = groupByCity(items);
 
@@ -163,8 +334,15 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
        ? `${first.city}: ${events.length} events`
        : `${first.city} - ${first.place} - ${first.title}`;
 
-      el.addEventListener("click", () => {
-        onMarkerClick?.(first.id);
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        
+        if (events.length === 1) {
+          openEventPopup(map, first);
+          onMarkerClick?.(first.id);
+          return;
+        }
 
       popupRef.current?.remove();
 
@@ -178,20 +356,94 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         const link = e.sourceUrl
           ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
           : "";
-        return `<div style="margin-top:6px"><strong>${tSt}</strong>   ${escapeHtml(e.title)}${link}</div>`;
+
+        const st = (e as any).status as string | undefined;
+
+        const controls =
+          st === "draft" || st === "pending"
+            ? `
+              <div style="margin-top:6px;display:flex;gap:8px">
+                <button data-action="approve" data-id="${e.id}"
+                  style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
+                  Approve
+                </button>
+                <button data-action="reject" data-id="${e.id}"
+                  style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
+                  Reject
+                </button>
+              </div>
+            `
+            : "";
+
+        return `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">
+            <div>
+              <strong>${tSt}</strong>
+              ${escapeHtml(e.title)}
+              ${statusBadge(st)}
+              ${link}
+            </div>
+            ${controls}
+          </div>
+        `;
+
       })
       .join("");
 
       popupRef.current = new maplibregl.Popup({ offset: 16 })
           .setLngLat([first.lng, first.lat])
           .setHTML(
-            `<div style="min-width:260px">
+            `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
               <strong>${escapeHtml(first.city)}</strong>
               <div style="opacity:.8;margin-top:4px">${events.length} events</div>
               <div style="margin-top:8px">${listHtml}</div>
             </div>`             
           )
           .addTo(map);
+
+          setTimeout(() => {
+            const root = popupRef.current?.getElement();
+            if (!root) return;
+
+            const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
+            if (!content) return;
+
+            content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
+              btn.addEventListener("click", async (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+
+                const b = btn as HTMLButtonElement;
+                const id = b.dataset.id!;
+                const action = b.dataset.action!; // approve|reject
+
+                const status = action === "approve" ? "approved" : "rejected";
+
+                b.disabled = true;
+                b.style.opacity = "0.7";
+
+                try {
+                  const r = await fetch(`/api/events/${id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status }),
+                  });
+
+                  if (!r.ok) {
+                    const j = await r.json().catch(() => ({}));
+                    throw new Error(j?.error || `HTTP ${r.status}`);
+                  }
+
+                  window.location.reload();
+                } catch (e) {
+                  console.error(e);
+                  b.disabled = false;
+                  b.style.opacity = "1";
+                  alert(String((e as any)?.message || e));
+                }
+              });
+            });
+          }, 0);
 
         map.easeTo({ center: [first.lng, first.lat], zoom: Math.max(map.getZoom(), 15) });
       });
@@ -207,38 +459,132 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
   }, [items, onMarkerClick]);
 
   // Focus on eventId (for example, clicked in calendar)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !focusId) return;
-    const e = items.find((x) => x.id === focusId);
-    if (!e) return;
-
-    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl");
+  function openEventPopup(map: MLMap, e: EventItem) {
+    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: "UTC" });
 
     const start = new Date(e.startAt);
-    const startTime = start.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
+    const startTime = start.toLocaleTimeString("pl-pl", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    });
 
     const end = e.endAt ? new Date(e.endAt) : null;
-    const endTime = end 
-     ? end.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"})
-     : "";
+    const endTime = end
+      ? end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })
+      : "";
+
+    const st = (e as any).status as string | undefined;
+
+    const controls =
+      st === "draft" || st === "pending"
+        ? `
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button data-action="approve" data-id="${e.id}"
+              style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
+              Approve
+            </button>
+            <button data-action="reject" data-id="${e.id}"
+              style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
+              Reject
+            </button>
+          </div>
+        `
+        : "";
 
     popupRef.current?.remove();
     popupRef.current = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
       .setHTML(
-        `<div style="min-width:220px">
-          <strong>${escapeHtml(e.title)}</strong>
-          <div>${escapeHtml(e.city)}${e.place ? "   " + escapeHtml(e.place) : ""}</div>
-          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime} - ${endTime} </div>
+        `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
+          <div style="display:flex;align-items:center;gap:8px">
+            <strong>${escapeHtml(e.title)}</strong>
+            ${statusBadge(st)}
+          </div>
+          <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
+          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          ${controls}
         </div>`
       )
       .addTo(map);
 
-    map.easeTo({ center: [e.lng, e.lat], zoom: Math.max(map.getZoom(), 10) });
-  }, [focusId, items]);
+    setTimeout(() => {
+      const root = popupRef.current?.getElement();
+      if (!root) return;
 
-  return <div className="map" ref={containerRef} />;
+      const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
+      if (!content) return;
+
+      content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
+        btn.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+
+          const b = btn as HTMLButtonElement;
+          const id = b.dataset.id!;
+          const action = b.dataset.action!;
+          const nextStatus = action === "approve" ? "approved" : "rejected";
+
+          b.disabled = true;
+          b.style.opacity = "0.7";
+
+          try {
+            const r = await fetch(`/api/events/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: nextStatus }),
+            });
+
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              throw new Error(j?.error || `HTTP ${r.status}`);
+            }
+
+            window.location.reload();
+          } catch (e) {
+            console.error(e);
+            b.disabled = false;
+            b.style.opacity = "1";
+            alert(String((e as any)?.message || e));
+          }
+        });
+      });
+    }, 0);
+
+    map.easeTo({ center: [e.lng, e.lat], zoom: Math.max(map.getZoom(), 15) });
+  }
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusId) return;
+
+    const e = items.find((x) => x.id === focusId);
+    if (!e) return;
+
+    openEventPopup(map, e);
+  }, [focusId, items]);
+  
+  return <div style={{ position: "relative", width: "100%", height: "100%" }}>
+  <div className="map" ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+
+  <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, display: "flex", gap: 8 }}>
+    <button
+      onClick={() => setAddMode((v) => !v)}
+      style={{
+        padding: "8px 10px",
+        borderRadius: 10,
+        border: "1px solid #ddd",
+        background: addMode ? "#111" : "#fff",
+        color: addMode ? "#fff" : "#111",
+        fontWeight: 700,
+        cursor: "pointer",
+      }}
+    >
+      {addMode ? "Cancel" : "+ Add event"}
+    </button>
+  </div>
+</div>
+
 }
 
 // HTML protect?
@@ -250,3 +596,23 @@ function escapeHtml(s: string) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+function statusBadge(status?: string | null) {
+  if (!status || status === "approved") return "";
+  const color =
+    status === "draft" ? "#f59e0b" :
+    status === "pending" ? "#3b82f6" :
+    status === "rejected" ? "#ef4444" : "#111";
+
+  return `<span style="
+    display:inline-block;
+    font-size:12px;
+    font-weight:800;
+    padding:2px 8px;
+    border-radius:999px;
+    background:${color};
+    color:white;
+    margin-left:8px;
+  ">${escapeHtml(status)}</span>`;
+}
+

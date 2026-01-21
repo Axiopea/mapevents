@@ -19,6 +19,13 @@ enum EventSource {
   other
 }
 
+// Synchronization status
+enum SyncStatus {
+  running
+  success
+  failed
+}
+
 // Moderation status
 enum EventStatus {
   draft
@@ -59,4 +66,32 @@ model Event {
   @@index([status, startAt])
 
   @@unique([source, sourceId])
+}
+
+model SyncRun {
+  id            String      @id @default(cuid())
+  source        EventSource
+  status        SyncStatus  @default(running)
+
+  startedAt     DateTime    @default(now())
+  finishedAt    DateTime?
+
+  fetchedCount  Int         @default(0)
+  createdCount  Int         @default(0)
+  updatedCount  Int         @default(0)
+  skippedCount  Int         @default(0)
+
+  errorMessage  String?     @db.Text
+
+  @@index([startedAt])
+}
+
+model GeoCache {
+  id         String   @id @default(cuid())
+  query      String   @unique @db.Text
+  lat        Decimal? @db.Decimal(9, 6)
+  lng        Decimal? @db.Decimal(9, 6)
+  raw        Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
 }
