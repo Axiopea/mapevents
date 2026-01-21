@@ -10,67 +10,6 @@ function isoPlusDays(daysFromNow: number, hour: number, minute = 0) {
   return d.toISOString(); // ok for MVP; later we need to preserve +01:00 formatting
 }
 
-async function fetchMockFacebook(): Promise<FacebookEventMapped[]> {
-  const warsaw = { lat: 52.2297, lng: 21.0122 };
-
-    return [
-    {
-      sourceEventId: "fb_mock_001",
-      sourceUrl: "https://facebook.com/events/fb_mock_001",
-      title: "Tech Meetup: MapEvents (Mock)",
-      description: "Mock Facebook event for pipeline testing.",
-      countryCode: "PL",
-      city: "Warsaw",
-      place: "Centrum, Warsaw",
-      startAt: isoPlusDays(1, 18, 0),
-      endAt: null,
-      lat: warsaw.lat,
-      lng: warsaw.lng,
-      raw: {
-        id: "fb_mock_001",
-        provider: "facebook",
-        fetchedAt: new Date().toISOString(),
-        note: "This is mock payload",
-      },
-    },
-    {
-      sourceEventId: "fb_mock_002",
-      sourceUrl: "https://facebook.com/events/fb_mock_002",
-      title: "Open Air Concert (Mock)",
-      description: "Bring a blanket. Mock data.",
-      countryCode: "PL",
-      city: "Warsaw",
-      place: "Lazienki Park",
-      startAt: isoPlusDays(2, 20, 0),
-      endAt: isoPlusDays(2, 22, 0),
-      lat: 52.2153,
-      lng: 21.0359,
-      raw: {
-        id: "fb_mock_002",
-        fetchedAt: new Date().toISOString(),
-        tags: ["music", "outdoor"],
-      },
-    },
-    {
-      sourceEventId: "fb_mock_003",
-      sourceUrl: "https://facebook.com/events/fb_mock_003",
-      title: "Art Exhibition Opening (Mock)",
-      countryCode: "PL",
-      city: "Warsaw",
-      place: "Art Gallery",
-      startAt: isoPlusDays(5, 19, 0),
-      endAt: null,
-      lat: 52.2405,
-      lng: 21.0074,
-      raw: {
-        id: "fb_mock_003",
-        fetchedAt: new Date().toISOString(),
-        organizer: { name: "Mock Gallery" },
-      },
-    },
-  ];
-}
-
 export async function syncFacebook() {
   const running = await prisma.syncRun.findFirst({
     where: { source: "facebook", status: "running" },
@@ -89,8 +28,6 @@ export async function syncFacebook() {
   let skipped = 0;
 
   try {
-    //const events: FacebookEventMapped[] = await fetchMockFacebook();
-
     const since = new Date();
     since.setDate(since.getDate() - 30);
 

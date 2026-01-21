@@ -85,3 +85,13 @@ model SyncRun {
 
   @@index([startedAt])
 }
+
+model GeoCache {
+  id         String   @id @default(cuid())
+  query      String   @unique @db.Text
+  lat        Decimal? @db.Decimal(9, 6)
+  lng        Decimal? @db.Decimal(9, 6)
+  raw        Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+}
