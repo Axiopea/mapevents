@@ -1,128 +1,99 @@
-import "dotenv/config"; // to take URL connection from .env
-import { fetchFacebookPageEvents, FacebookEventMapped } from "@/scripts/facebookGraph";
+import "dotenv/config";
 import { EventSource, EventStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { ExternalEvent } from "@/lib/import/types";
+import { importEvents } from "../scripts/import-from-external";
 
-function isoPlusDays(daysFromNow: number, hour: number, minute = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() + daysFromNow);
-  d.setHours(hour, minute, 0, 0);
-  return d.toISOString(); // ok for MVP; later we need to preserve +01:00 formatting
+function extractEventId(url: string) {
+  const m = url.match(/facebook\.com\/events\/(\d+)/i);
+  return m?.[1] ?? null;
 }
 
-export async function syncFacebook() {
-  const running = await prisma.syncRun.findFirst({
-    where: { source: "facebook", status: "running" },
-  });
-  if (running) {
-    return { skipped: true, reason: "sync already running" };
-  }
+async function searchIndexedFacebookEvents(limit = 10) {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey) throw new Error("Missing SERPAPI_KEY");
 
-  const run = await prisma.syncRun.create({
-    data: { source: "facebook" },
-  });
+  const q = process.env.FB_SEARCH_QUERY;
+  if (!q) throw new Error("Missing FB_SEARCH_QUERY");
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google");
+  url.searchParams.set("q", q);
+  url.searchParams.set("num", String(Math.min(30, limit * 3)));
+  url.searchParams.set("api_key", apiKey);
+
+  const res = await fetch(url.toString(), { cache: "no-store" });
+  if (!res.ok) throw new Error(`SerpAPI error ${res.status}: ${await res.text()}`);
+
+  const json = await res.json();
+  const organic = (json.organic_results ?? []) as any[];
+
+  const out: ExternalEvent[] = [];
+  const seen = new Set<string>();
 
   let fetched = 0;
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
+  let skipped = 0
 
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
+  for (const r of organic) {
+    fetched++;
 
-    const until = new Date();
-    until.setDate(until.getDate() + 90);
+    const link = r.link as string | undefined;
 
-    const events: FacebookEventMapped[] = await fetchFacebookPageEvents({ since, until, limit: 50, maxPages: 20 });
+    if (!link) {
+      skipped++;
+      continue;
+    } 
 
-    fetched = events.length;
+    const id = extractEventId(link);
 
-    for (const e of events) {
-      const res = await prisma.event.upsert({
-        where: {
-          source_sourceId: {
-            source: EventSource.facebook,
-            sourceId: e.sourceEventId ? e.sourceEventId : "",
-          },
-        },
-        create: {
-          source: EventSource.facebook,
-          sourceId: e.sourceEventId,
-          sourceUrl: e.sourceUrl,
-
-          title: e.title,
-          startAt: new Date(e.startAt),
-          endAt: e.endAt ? new Date(e.endAt) : null,
-
-          lat: e.lat.toFixed(6),
-          lng: e.lng.toFixed(6),
-
-          city: e.city,
-          countryCode: e.countryCode,
-          place: e.place,
-
-          rawPayload: e.raw ? e.raw : "",
-          status: EventStatus.pending,
-        },
-        update: {
-          title: e.title,
-          startAt: new Date(e.startAt),
-          endAt: e.endAt ? new Date(e.endAt) : null,
-          lat: e.lat.toFixed(6),
-          lng: e.lng.toFixed(6),
-          city: e.city,
-          countryCode: e.countryCode,
-          place: e.place,
-          rawPayload: e.raw ? e.raw : "",
-        },
-      });
-
-      if (res.createdAt.getTime() === res.updatedAt.getTime()) {
-        created++;
-      } else {
-        updated++;
-      }
+    if (!id || seen.has(id)) {
+      skipped++;
+      continue;
     }
 
-    await prisma.syncRun.update({
-      where: { id: run.id },
-      data: {
-        status: "success",
-        finishedAt: new Date(),
-        fetchedCount: fetched,
-        createdCount: created,
-        updatedCount: updated,
-        skippedCount: skipped,
-      },
+    seen.add(id);
+    out.push({
+      title: r.title?.trim() || "(Facebook event)",
+      description: r.snippet,
+      countryCode: "PL", // TODO: remove hardcode, take location directly
+      city: "Warsaw", // TODO: remove hardcode, take location directly
+      place: null, // TODO: remove hardcode, take location directly
+      startAt: new Date(), // TODO: remove hardcode, take start date/time directly
+      endAt: null, // TODO: remove hardcode, take end date/time directly
+      lat: (52.2297).toFixed(6), // TODO: remove hardcode, take location directly
+      lng: (21.0122).toFixed(6), // TODO: remove hardcode, take location directly
+      source: EventSource.facebook,
+      sourceId: id,
+      sourceUrl: `https://www.facebook.com/events/${id}/`,
+      rawPayload: {
+          query: q,
+          indexed: r,
+        }
     });
 
-    console.info("Facebook sync finished");
-
-    return { ok: true, fetched, created, updated };
-  } catch (err: any) {
-    await prisma.syncRun.update({
-      where: { id: run.id },
-      data: {
-        status: "failed",
-        finishedAt: new Date(),
-        errorMessage: err?.stack ?? String(err),
-      },
-    });
-
-    console.warn("Facebook sync failed");
-
-    throw err;
+    if (out.length >= limit) break;
   }
+
+  return { q, results: out, raw: json, fetchedCount: fetched, skippedCount: skipped };
 }
 
-async function main() {
-    await syncFacebook();
-}
+export async function syncFacebook(limit = 10) {
+  const run = await prisma.syncRun.create({
+    data: { source: "other" },
+  });
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exitCode = 1;
-  })
-  .finally(async () => prisma.$disconnect());
+  let { q, results, fetchedCount, skippedCount } = await searchIndexedFacebookEvents(Math.min(100, Math.max(1, limit)));
+
+  let { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
+
+  console.info("Facebook search import finished");
+  
+  return {
+    ok: true,
+    query: q,
+    fetched: fetchedCount,
+    created,
+    updated,
+    skipped: skippedCount,
+  };
+}
