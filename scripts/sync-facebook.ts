@@ -1,8 +1,10 @@
 import "dotenv/config";
-import { EventSource, EventStatus } from "@prisma/client";
+import { EventSource } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ExternalEvent } from "@/lib/import/types";
 import { importEvents } from "../scripts/import-from-external";
+import { geocodeNominatim } from "@/lib/geocode/nominatim";
+import { parseStartEndFromPolishText, parsePlaceQueryFromSnippetV2 } from "@/lib/facebook/parseSnippet";
 
 function extractEventId(url: string) {
   const m = url.match(/facebook\.com\/events\/(\d+)/i);
@@ -51,23 +53,48 @@ async function searchIndexedFacebookEvents(limit = 10) {
       continue;
     }
 
+    const { city, countryCode, placeQuery } = parsePlaceQueryFromSnippetV2({ title: r.title, snippet: r.snippet, query: q });
+
+    const { startAt, endAt } = parseStartEndFromPolishText(`${r.title ?? ""} ${r.snippet ?? ""}`);
+    const start = startAt ?? new Date();
+    const end = endAt ?? null;
+
+    const geo = await geocodeNominatim(placeQuery);
+
+    if (!geo)
+    {
+      skipped++;
+      continue;
+    }
+
+    const lat = (geo.lat).toFixed(6);
+    const lng = (geo.lng).toFixed(6);
+
     seen.add(id);
     out.push({
       title: r.title?.trim() || "(Facebook event)",
-      description: r.snippet,
-      countryCode: "PL", // TODO: remove hardcode, take location directly
-      city: "Warsaw", // TODO: remove hardcode, take location directly
-      place: null, // TODO: remove hardcode, take location directly
-      startAt: new Date(), // TODO: remove hardcode, take start date/time directly
-      endAt: null, // TODO: remove hardcode, take end date/time directly
-      lat: (52.2297).toFixed(6), // TODO: remove hardcode, take location directly
-      lng: (21.0122).toFixed(6), // TODO: remove hardcode, take location directly
+      description: r.snippet ?? null,
+      countryCode: countryCode,
+      city: city,
+      place: placeQuery,
+      startAt: start, 
+      endAt: end, 
+      lat: lat, 
+      lng: lng, 
       source: EventSource.facebook,
       sourceId: id,
       sourceUrl: `https://www.facebook.com/events/${id}/`,
       rawPayload: {
           query: q,
           indexed: r,
+          extracted: {
+            placeQuery,
+            startAt: startAt?.toISOString() ?? null,
+            endAt: endAt ? endAt.toISOString() : null,
+            city,
+            countryCode
+          },
+          geocode: geo ?? null
         }
     });
 
