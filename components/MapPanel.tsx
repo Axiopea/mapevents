@@ -11,28 +11,40 @@ type Props = {
   onMarkerClick?: (id: string) => void;
   /** Enables admin-only UI: add event + approve/reject controls */
   admin?: boolean;
+
+  onEventDeleted?: (id: string) => void;
+  onEventStatusChanged?: (id: string, status: "approved" | "rejected") => void;
+  onEventEdited?: (
+    id: string,
+    patch: { title?: string; place?: string | null; startAt?: string; endAt?: string | null }
+  ) => void;
 };
 
 function groupByCity(items: EventItem[]) {
   const map = new Map<string, EventItem[]>();
 
   for (const e of items) {
-    // const key = `${e.city}__${e.lat.toFixed(4)}__${e.lng.toFixed(4)}`; //key by city + coordinates
-    // key by city 
     const key = `${e.city}`;
     const arr = map.get(key) ?? [];
     arr.push(e);
     map.set(key, arr);
   }
 
-  // sort events inside city by time
   return Array.from(map.entries()).map(([key, events]) => {
     events.sort((a, b) => a.startAt.localeCompare(b.startAt));
     return { key, events };
   });
 }
 
-export default function MapPanel({ items, focusId, onMarkerClick, admin = false }: Props) {
+export default function MapPanel({
+  items,
+  focusId,
+  onMarkerClick,
+  admin = false,
+  onEventDeleted,
+  onEventStatusChanged,
+  onEventEdited,
+}: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<Popup | null>(null);
@@ -41,15 +53,17 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
   const draftMarkerRef = useRef<maplibregl.Marker | null>(null);
   const draftLngLatRef = useRef<{ lng: number; lat: number } | null>(null);
 
-  const addModeRef = useRef(false);
-  useEffect(() => { addModeRef.current = addMode; }, [addMode]);
+  const popupListenersAbortRef = useRef<AbortController | null>(null);
 
-  // Safety: if admin mode is turned off, ensure add mode is disabled.
+  const addModeRef = useRef(false);
+  useEffect(() => {
+    addModeRef.current = addMode;
+  }, [addMode]);
+
   useEffect(() => {
     if (!admin) setAddMode(false);
   }, [admin]);
 
-  // Easy style OSM raster (without keys)
   const style = useMemo<StyleSpecification>(
     () => ({
       version: 8,
@@ -61,13 +75,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
           attribution: "OpenStreetMap contributors",
         },
       },
-      layers: [
-        {
-          id: "osm",
-          type: "raster",
-          source: "osm",
-        },
-      ],
+      layers: [{ id: "osm", type: "raster", source: "osm" }],
     }),
     []
   );
@@ -78,7 +86,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
     const map = new maplibregl.Map({
       container: containerRef.current,
       style,
-      center: [19.4, 52.1], // Poland
+      center: [19.4, 52.1],
       zoom: 6,
     });
 
@@ -114,7 +122,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
             <input name="title" placeholder="Title" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
             <input name="city" placeholder="City" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
             <input name="place" placeholder="Place (optional)" style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
-            <label style="font-size:12px;opacity:.8">Start (UTC ISO or local)</label>
+            <label style="font-size:12px;opacity:.8">Start</label>
             <input name="startAt" type="datetime-local" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
             <label style="font-size:12px;opacity:.8">End (optional)</label>
             <input name="endAt" type="datetime-local" style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
@@ -147,7 +155,6 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
             if (!draftLngLatRef.current) return;
 
             const { lat, lng } = draftLngLatRef.current;
-
             const r = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
             if (!r.ok) return;
             const j = await r.json();
@@ -203,8 +210,6 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
             }
           }
 
-          // datetime-local -> ISO (важно!)
-          // interpret as local time on client and convert to ISO
           const startIso = startAtLocal ? new Date(startAtLocal).toISOString() : "";
           const endIso = endAtLocal ? new Date(endAtLocal).toISOString() : null;
 
@@ -231,13 +236,13 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
               throw new Error(j?.error || `HTTP ${res.status}`);
             }
 
-            // закрыть popup/маркер и обновить страницу (MVP)
             popupRef.current?.remove();
             draftMarkerRef.current?.remove();
             draftMarkerRef.current = null;
             draftLngLatRef.current = null;
 
-            // самый простой рефреш данных
+            // MVP: можно оставить reload (создание влияет на список).
+            // Если хочешь без reload — скажи, добавим onEventCreated.
             window.location.reload();
           } catch (err: any) {
             if (errBox) errBox.textContent = err?.message || "Failed to save";
@@ -246,20 +251,18 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
       }, 0);
     });
 
-
     return () => {
+      popupListenersAbortRef.current?.abort();
       popupRef.current?.remove();
       map.remove();
       mapRef.current = null;
     };
   }, [style, admin]);
 
-  // Render of markers as HTML elements (quickly for prototype)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove old markers
     const old = document.querySelectorAll(".evt-marker");
     old.forEach((n) => n.remove());
 
@@ -268,206 +271,239 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
 
     const groups = groupByCity(items);
 
-    groups.forEach(({events}) => {
+    groups.forEach(({ events }) => {
       const first = events[0];
       if (!first) return;
+
       const el = document.createElement("button");
-      
       el.className = "evt-cal-stack";
-      //el.title = e.title;
       el.type = "button";
-
-      const d = new Date(first.startAt);
-
-      // month shortly
-      const mon = d
-       .toLocaleDateString("en-us", { month: "short", timeZone: "UTC" })
-       .replace(".", "")
-       .toUpperCase();
-
-      // day of month 1..31
-      const day = d.toLocaleDateString("en-us", { day: "2-digit", timeZone: "UTC" });
 
       const tz = "UTC";
       const uniqueDays: string[] = [];
       const dayToEvent: EventItem[] = [];
 
       for (const ev of events) {
-        const dayKey = new Date(ev.startAt).toLocaleDateString("en-us", { timeZone: tz }); // YYYY-MM-DD
+        const dayKey = new Date(ev.startAt).toLocaleDateString("en-us", { timeZone: tz });
         if (!uniqueDays.includes(dayKey)) {
-         uniqueDays.push(dayKey);
-         dayToEvent.push(ev);
+          uniqueDays.push(dayKey);
+          dayToEvent.push(ev);
         }
       }
 
-      // show max 3 dates
       const shown = dayToEvent.slice(0, 3);
-      const more = uniqueDays.length - shown.length;    
+      const more = uniqueDays.length - shown.length;
 
       const cardsHtml = shown
         .map((ev, idx) => {
-        const d = new Date(ev.startAt);
+          const d = new Date(ev.startAt);
+          const mon = d
+            .toLocaleDateString("en-us", { month: "short", timeZone: tz })
+            .replace(".", "")
+            .toUpperCase();
+          const day = d.toLocaleDateString("pl-PL", { day: "2-digit", timeZone: tz });
 
-        const mon = d
-          .toLocaleDateString("en-us", { month: "short", timeZone: tz })
-          .replace(".", "")
-          .toUpperCase();
+          const dx = idx * 8;
+          const dy = idx * 3;
 
-        const day = d.toLocaleDateString("pl-PL", { day: "2-digit", timeZone: tz });
-
-        // every next card a little shifted
-        const dx = idx * 8;
-        const dy = idx * 3;
-
-        return `
-         <div class="evt-cal-card" style="transform: translate(${dx}px, ${dy}px)">
-           <div class="evt-cal-top">${mon}</div>
-           <div class="evt-cal-day">${day}</div>
-         </div>
-        `;
-      })
-      .join("");
+          return `
+            <div class="evt-cal-card" style="transform: translate(${dx}px, ${dy}px)">
+              <div class="evt-cal-top">${mon}</div>
+              <div class="evt-cal-day">${day}</div>
+            </div>
+          `;
+        })
+        .join("");
 
       const badge =
-       uniqueDays.length > 1
-       ? `<div class="evt-cal-badge">${more > 0 ? `+${more}` : uniqueDays.length}</div>`
-       : "";
+        uniqueDays.length > 1
+          ? `<div class="evt-cal-badge">${more > 0 ? `+${more}` : uniqueDays.length}</div>`
+          : "";
 
       el.innerHTML = `
-       ${badge}
-       ${cardsHtml}
+        ${badge}
+        ${cardsHtml}
       `;
-      
-      el.title = events.length > 1 
-       ? `${first.city}: ${events.length} events`
-       : `${first.city} - ${first.place} - ${first.title}`;
+
+      el.title =
+        events.length > 1 ? `${first.city}: ${events.length} events` : `${first.city} - ${first.place} - ${first.title}`;
 
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        
+
         if (events.length === 1) {
           openEventPopup(map, first);
           onMarkerClick?.(first.id);
           return;
         }
 
-      popupRef.current?.remove();
+        // !!! ВАЖНО: перед popup со списком тоже сбрасываем старые listeners
+        popupListenersAbortRef.current?.abort();
+        popupListenersAbortRef.current = new AbortController();
 
-      const listHtml = events
-      .map((e) => {
-        const tSt = new Date(e.startAt).toLocaleTimeString("en-us", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "UTC",
-        });
-        const link = e.sourceUrl
-          ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
-          : "";
+        popupRef.current?.remove();
 
-        const st = (e as any).status as string | undefined;
+        const listHtml = events
+          .map((e) => {
+            const tSt = new Date(e.startAt).toLocaleTimeString("en-us", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "UTC",
+            });
 
-        const controls =
-          admin && (st === "draft" || st === "pending")
-            ? `
-              <div style="margin-top:6px;display:flex;gap:8px">
-                <button data-action="approve" data-id="${e.id}"
-                  style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
-                  Approve
-                </button>
-                <button data-action="reject" data-id="${e.id}"
-                  style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
-                  Reject
-                </button>
+            const link = e.sourceUrl
+              ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
+              : "";
+
+            const st = (e as any).status as string | undefined;
+
+            const canEditRow = admin && (st === "draft" || st === "pending");
+
+            const rowAdminControls = admin
+              ? `
+                <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+                  ${canEditRow ? `
+                    <button data-action="edit" data-id="${e.id}"
+                      style="padding:6px 10px;border-radius:10px;border:1px solid #111;background:#fff;font-weight:800;cursor:pointer">
+                      Edit
+                    </button>
+                  ` : ""}
+                  <button data-action="delete" data-id="${e.id}"
+                    style="padding:6px 10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
+                    Delete
+                  </button>
+                </div>
+              `
+              : "";
+
+            const approveRejectControls =
+              admin && (st === "draft" || st === "pending")
+                ? `
+                  <div style="margin-top:6px;display:flex;gap:8px">
+                    <button data-action="approve" data-id="${e.id}"
+                      style="padding:6px 10px;border-radius:10px;border:0;background:#16a34a;color:white;font-weight:800;cursor:pointer">
+                      Approve
+                    </button>
+                    <button data-action="reject" data-id="${e.id}"
+                      style="padding:6px 10px;border-radius:10px;border:0;background:#dc2626;color:white;font-weight:800;cursor:pointer">
+                      Reject
+                    </button>
+                  </div>
+                `
+                : "";
+
+            return `
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">
+                <div>
+                  <strong>${tSt}</strong>
+                  ${escapeHtml(e.title)}
+                  ${statusBadge(st)}
+                  ${link}
+                </div>
+                ${rowAdminControls}
+                ${approveRejectControls}
               </div>
-            `
-            : "";
+            `;
+          })
+          .join("");
 
-        return `
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">
-            <div>
-              <strong>${tSt}</strong>
-              ${escapeHtml(e.title)}
-              ${statusBadge(st)}
-              ${link}
-            </div>
-            ${controls}
-          </div>
-        `;
-
-      })
-      .join("");
-
-      popupRef.current = new maplibregl.Popup({ offset: 16 })
+        popupRef.current = new maplibregl.Popup({ offset: 16 })
           .setLngLat([first.lng, first.lat])
           .setHTML(
             `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
               <strong>${escapeHtml(first.city)}</strong>
               <div style="opacity:.8;margin-top:4px">${events.length} events</div>
               <div style="margin-top:8px">${listHtml}</div>
-            </div>`             
+            </div>`
           )
           .addTo(map);
 
-          setTimeout(() => {
-            const root = popupRef.current?.getElement();
-            if (!root) return;
+        setTimeout(() => {
+          const root = popupRef.current?.getElement();
+          if (!root) return;
 
-            const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
-            if (!content) return;
+          const signal = popupListenersAbortRef.current!.signal;
 
-            content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
-              btn.addEventListener("click", async (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
+          const onClick = async (ev: MouseEvent) => {
+            const target = ev.target as HTMLElement;
+            const btn = target.closest("button[data-action][data-id]") as HTMLButtonElement | null;
+            if (!btn) return;
 
-                const b = btn as HTMLButtonElement;
-                const id = b.dataset.id!;
-                const action = b.dataset.action!; // approve|reject
+            ev.preventDefault();
+            ev.stopPropagation();
 
-                const status = action === "approve" ? "approved" : "rejected";
+            if (btn.dataset.busy === "1") return;
+            btn.dataset.busy = "1";
+            btn.disabled = true;
+            btn.style.opacity = "0.6";
 
-                b.disabled = true;
-                b.style.opacity = "0.7";
+            const action = btn.dataset.action!;
+            const id = btn.dataset.id!;
 
-                try {
-                  const r = await fetch(`/api/events/${id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ status }),
-                  });
+            try {
+              if (action === "delete") {
+                if (!confirm("Delete this event?")) return;
 
-                  if (!r.ok) {
-                    const j = await r.json().catch(() => ({}));
-                    throw new Error(j?.error || `HTTP ${r.status}`);
-                  }
-
-                  window.location.reload();
-                } catch (e) {
-                  console.error(e);
-                  b.disabled = false;
-                  b.style.opacity = "1";
-                  alert(String((e as any)?.message || e));
+                const r = await fetch(`/api/events/${id}`, { method: "DELETE" });
+                if (!r.ok) {
+                  const txt = await r.text();
+                  throw new Error(txt || `HTTP ${r.status}`);
                 }
-              });
-            });
-          }, 0);
+
+                popupRef.current?.remove();
+                onEventDeleted?.(id);
+                return;
+              }
+
+              if (action === "approve" || action === "reject") {
+                const status = action === "approve" ? "approved" : "rejected";
+                const r = await fetch(`/api/events/${id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status }),
+                });
+                if (!r.ok) {
+                  const txt = await r.text();
+                  throw new Error(txt || `HTTP ${r.status}`);
+                }
+
+                onEventStatusChanged?.(id, status);
+                return;
+              }
+
+              if (action === "edit") {
+                const evObj = items.find((x) => x.id === id);
+                if (evObj) openEditPopup(map, evObj);
+                return;
+              }
+            } finally {
+              btn.dataset.busy = "0";
+              btn.disabled = false;
+              btn.style.opacity = "1";
+            }
+          };
+
+          root.addEventListener("click", onClick, { signal });
+        }, 0);
 
         map.easeTo({ center: [first.lng, first.lat], zoom: Math.max(map.getZoom(), 15) });
       });
 
-      // MapLibre Marker
-      new maplibregl.Marker({ element: el,
-                              anchor: "bottom",
-                              offset: [0, -16] // draw marker a bit higher than city
-                            })
-      .setLngLat([first.lng, first.lat])
-      .addTo(map);
+      new maplibregl.Marker({
+        element: el,
+        anchor: "bottom",
+        offset: [0, -16],
+      })
+        .setLngLat([first.lng, first.lat])
+        .addTo(map);
     });
-  }, [items, onMarkerClick]);
+  }, [items, onMarkerClick, admin, onEventDeleted, onEventStatusChanged]);
 
-  // Focus on eventId (for example, clicked in calendar)
   function openEventPopup(map: MLMap, e: EventItem) {
+    popupListenersAbortRef.current?.abort();
+    popupListenersAbortRef.current = new AbortController();
+
     const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: "UTC" });
 
     const start = new Date(e.startAt);
@@ -483,6 +519,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
       : "";
 
     const st = (e as any).status as string | undefined;
+    const canEdit = admin && (st === "draft" || st === "pending");
 
     const controls =
       admin && (st === "draft" || st === "pending")
@@ -500,6 +537,23 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
         `
         : "";
 
+    const editDeleteControls = admin
+      ? `
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          ${canEdit ? `
+            <button data-action="edit" data-id="${e.id}"
+              style="padding:6px 10px;border-radius:10px;border:1px solid #111;background:#fff;font-weight:800;cursor:pointer">
+              Edit
+            </button>
+          ` : ""}
+          <button data-action="delete" data-id="${e.id}"
+            style="padding:6px 10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
+            Delete
+          </button>
+        </div>
+      `
+      : "";
+
     popupRef.current?.remove();
     popupRef.current = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
@@ -511,6 +565,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
           </div>
           <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
           <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          ${editDeleteControls}
           ${controls}
         </div>`
       )
@@ -520,46 +575,215 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
       const root = popupRef.current?.getElement();
       if (!root) return;
 
-      const content = root.querySelector(".maplibregl-popup-content") as HTMLElement | null;
-      if (!content) return;
+      const signal = popupListenersAbortRef.current!.signal;
 
-      content.querySelectorAll("button[data-action][data-id]").forEach((btn) => {
-        btn.addEventListener("click", async (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
+      const onClick = async (ev: MouseEvent) => {
+        const target = ev.target as HTMLElement;
+        const btn = target.closest("button[data-action][data-id]") as HTMLButtonElement | null;
+        if (!btn) return;
 
-          const b = btn as HTMLButtonElement;
-          const id = b.dataset.id!;
-          const action = b.dataset.action!;
-          const nextStatus = action === "approve" ? "approved" : "rejected";
+        ev.preventDefault();
+        ev.stopPropagation();
 
-          b.disabled = true;
-          b.style.opacity = "0.7";
+        if (btn.dataset.busy === "1") return;
+        btn.dataset.busy = "1";
+        btn.disabled = true;
+        btn.style.opacity = "0.6";
 
-          try {
+        const action = btn.dataset.action!;
+        const id = btn.dataset.id!;
+
+        try {
+          if (action === "delete") {
+            if (!confirm("Delete this event?")) return;
+
+            const r = await fetch(`/api/events/${id}`, { method: "DELETE" });
+            if (!r.ok) {
+              const txt = await r.text();
+              throw new Error(txt || `HTTP ${r.status}`);
+            }
+
+            popupRef.current?.remove();
+            onEventDeleted?.(id);
+            return;
+          }
+
+          if (action === "approve" || action === "reject") {
+            const status = action === "approve" ? "approved" : "rejected";
             const r = await fetch(`/api/events/${id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status: nextStatus }),
+              body: JSON.stringify({ status }),
             });
-
             if (!r.ok) {
-              const j = await r.json().catch(() => ({}));
-              throw new Error(j?.error || `HTTP ${r.status}`);
+              const txt = await r.text();
+              throw new Error(txt || `HTTP ${r.status}`);
             }
 
-            window.location.reload();
-          } catch (e) {
-            console.error(e);
-            b.disabled = false;
-            b.style.opacity = "1";
-            alert(String((e as any)?.message || e));
+            onEventStatusChanged?.(id, status);
+            return;
           }
-        });
-      });
+
+          if (action === "edit") {
+            const evObj = items.find((x) => x.id === id);
+            if (evObj) openEditPopup(map, evObj);
+            return;
+          }
+        } finally {
+          btn.dataset.busy = "0";
+          btn.disabled = false;
+          btn.style.opacity = "1";
+        }
+      };
+
+      root.addEventListener("click", onClick, { signal });
     }, 0);
 
     map.easeTo({ center: [e.lng, e.lat], zoom: Math.max(map.getZoom(), 15) });
+  }
+
+  function toLocalInputValue(iso: string) {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+      d.getMinutes()
+    )}`;
+  }
+
+  function openEditPopup(map: MLMap, e: EventItem) {
+    popupListenersAbortRef.current?.abort();
+    popupListenersAbortRef.current = new AbortController();
+
+    const startVal = toLocalInputValue(e.startAt);
+    const endVal = e.endAt ? toLocalInputValue(e.endAt) : "";
+
+    popupRef.current?.remove();
+    popupRef.current = new maplibregl.Popup({ offset: 16, closeOnClick: false })
+      .setLngLat([e.lng, e.lat])
+      .setHTML(`
+        <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
+          <div style="font-weight:800;margin-bottom:8px">Edit event</div>
+
+          <form id="evt-edit-form" style="display:flex;flex-direction:column;gap:8px">
+            <input name="title" placeholder="Title" required
+              value="${escapeHtml(e.title)}"
+              style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+
+            <input name="place" placeholder="Place (optional)"
+              value="${escapeHtml(e.place || "")}"
+              style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+
+            <label style="font-size:12px;opacity:.8">Start</label>
+            <input name="startAt" type="datetime-local" required
+              value="${escapeHtml(startVal)}"
+              style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+
+            <label style="font-size:12px;opacity:.8">End (optional)</label>
+            <input name="endAt" type="datetime-local"
+              value="${escapeHtml(endVal)}"
+              style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
+
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <button type="submit"
+                style="flex:1;padding:10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
+                Save
+              </button>
+              <button type="button" id="evt-edit-cancel"
+                style="flex:1;padding:10px;border-radius:10px;border:1px solid #ddd;background:#fff;font-weight:800;cursor:pointer">
+                Cancel
+              </button>
+            </div>
+          </form>
+
+          <div id="evt-edit-err" style="margin-top:8px;color:#b91c1c;font-size:12px"></div>
+        </div>
+      `)
+      .addTo(map);
+
+    setTimeout(() => {
+      const root = popupRef.current?.getElement();
+      if (!root) return;
+
+      const form = root.querySelector("#evt-edit-form") as HTMLFormElement | null;
+      const btnCancel = root.querySelector("#evt-edit-cancel") as HTMLButtonElement | null;
+      const errBox = root.querySelector("#evt-edit-err") as HTMLDivElement | null;
+
+      btnCancel?.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openEventPopup(map, e);
+      });
+
+      form?.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+
+        const fd = new FormData(form);
+        const title = String(fd.get("title") || "");
+        const place = String(fd.get("place") || "");
+        const startAtLocal = String(fd.get("startAt") || "");
+        const endAtLocal = String(fd.get("endAt") || "");
+
+        if (!startAtLocal) {
+          if (errBox) errBox.textContent = "Start date/time is required";
+          return;
+        }
+
+        const startMs = Date.parse(startAtLocal);
+        if (Number.isNaN(startMs)) {
+          if (errBox) errBox.textContent = "Start date/time is invalid";
+          return;
+        }
+
+        if (endAtLocal) {
+          const endMs = Date.parse(endAtLocal);
+          if (Number.isNaN(endMs)) {
+            if (errBox) errBox.textContent = "End date/time is invalid";
+            return;
+          }
+          if (endMs <= startMs) {
+            if (errBox) errBox.textContent = "End must be after Start";
+            return;
+          }
+        }
+
+        const startIso = new Date(startAtLocal).toISOString();
+        const endIso = endAtLocal ? new Date(endAtLocal).toISOString() : null;
+
+        try {
+          if (errBox) errBox.textContent = "";
+
+          const r = await fetch(`/api/events/${e.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title,
+              place: place || null,
+              startAt: startIso,
+              endAt: endIso,
+            }),
+          });
+
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j?.error || `HTTP ${r.status}`);
+          }
+
+          // ✅ без reload: обновляем список у родителя
+          onEventEdited?.(e.id, {
+            title,
+            place: place || null,
+            startAt: startIso,
+            endAt: endIso,
+          });
+
+          // сразу показать обновлённое
+          openEventPopup(map, { ...e, title, place: place || null, startAt: startIso, endAt: endIso });
+        } catch (e2) {
+          console.error(e2);
+          if (errBox) errBox.textContent = String((e2 as any)?.message || e2);
+        }
+      });
+    }, 0);
   }
 
   useEffect(() => {
@@ -571,7 +795,7 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
 
     openEventPopup(map, e);
   }, [focusId, items]);
-  
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div className="map" ref={containerRef} style={{ position: "absolute", inset: 0 }} />
@@ -596,7 +820,6 @@ export default function MapPanel({ items, focusId, onMarkerClick, admin = false 
       )}
     </div>
   );
-
 }
 
 // HTML protect?
@@ -612,9 +835,13 @@ function escapeHtml(s: string) {
 function statusBadge(status?: string | null) {
   if (!status || status === "approved") return "";
   const color =
-    status === "draft" ? "#f59e0b" :
-    status === "pending" ? "#3b82f6" :
-    status === "rejected" ? "#ef4444" : "#111";
+    status === "draft"
+      ? "#f59e0b"
+      : status === "pending"
+      ? "#3b82f6"
+      : status === "rejected"
+      ? "#ef4444"
+      : "#111";
 
   return `<span style="
     display:inline-block;
@@ -627,4 +854,3 @@ function statusBadge(status?: string | null) {
     margin-left:8px;
   ">${escapeHtml(status)}</span>`;
 }
-
