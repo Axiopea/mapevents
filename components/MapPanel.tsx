@@ -9,6 +9,8 @@ type Props = {
   items: EventItem[];
   focusId?: string | null;
   onMarkerClick?: (id: string) => void;
+  /** Enables admin-only UI: add event + approve/reject controls */
+  admin?: boolean;
 };
 
 function groupByCity(items: EventItem[]) {
@@ -30,7 +32,7 @@ function groupByCity(items: EventItem[]) {
   });
 }
 
-export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
+export default function MapPanel({ items, focusId, onMarkerClick, admin = false }: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<Popup | null>(null);
@@ -41,6 +43,11 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
 
   const addModeRef = useRef(false);
   useEffect(() => { addModeRef.current = addMode; }, [addMode]);
+
+  // Safety: if admin mode is turned off, ensure add mode is disabled.
+  useEffect(() => {
+    if (!admin) setAddMode(false);
+  }, [admin]);
 
   // Easy style OSM raster (without keys)
   const style = useMemo<StyleSpecification>(
@@ -79,6 +86,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     mapRef.current = map;
 
     map.on("click", (ev) => {
+      if (!admin) return;
       if (!addModeRef.current) return;
 
       const { lng, lat } = ev.lngLat;
@@ -244,7 +252,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
       map.remove();
       mapRef.current = null;
     };
-  }, [style]);
+  }, [style, admin]);
 
   // Render of markers as HTML elements (quickly for prototype)
   useEffect(() => {
@@ -360,7 +368,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
         const st = (e as any).status as string | undefined;
 
         const controls =
-          st === "draft" || st === "pending"
+          admin && (st === "draft" || st === "pending")
             ? `
               <div style="margin-top:6px;display:flex;gap:8px">
                 <button data-action="approve" data-id="${e.id}"
@@ -477,7 +485,7 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     const st = (e as any).status as string | undefined;
 
     const controls =
-      st === "draft" || st === "pending"
+      admin && (st === "draft" || st === "pending")
         ? `
           <div style="margin-top:10px;display:flex;gap:8px">
             <button data-action="approve" data-id="${e.id}"
@@ -564,26 +572,30 @@ export default function MapPanel({ items, focusId, onMarkerClick }: Props) {
     openEventPopup(map, e);
   }, [focusId, items]);
   
-  return <div style={{ position: "relative", width: "100%", height: "100%" }}>
-  <div className="map" ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div className="map" ref={containerRef} style={{ position: "absolute", inset: 0 }} />
 
-  <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, display: "flex", gap: 8 }}>
-    <button
-      onClick={() => setAddMode((v) => !v)}
-      style={{
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid #ddd",
-        background: addMode ? "#111" : "#fff",
-        color: addMode ? "#fff" : "#111",
-        fontWeight: 700,
-        cursor: "pointer",
-      }}
-    >
-      {addMode ? "Cancel" : "+ Add event"}
-    </button>
-  </div>
-</div>
+      {admin && (
+        <div style={{ position: "absolute", top: 12, left: 12, zIndex: 10, display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setAddMode((v) => !v)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: addMode ? "#111" : "#fff",
+              color: addMode ? "#fff" : "#111",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            {addMode ? "Cancel" : "+ Add event"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
 }
 
