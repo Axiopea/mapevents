@@ -6,7 +6,7 @@ export async function importEvents(externalEvents: ExternalEvent[], jobRunId: st
   let created = 0, updated = 0;
 
   for (const externalEvent of externalEvents) {
-    console.info(externalEvent);
+    //console.info(externalEvent);
     const existing = await prisma.event.findUnique({
       where: {
         source_sourceId: {
