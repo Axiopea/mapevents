@@ -12,6 +12,8 @@ export async function GET(req: Request) {
   const fetchLimit = Number.parseInt(process.env.ICS_JOB_FETCH_LIMIT ?? '0');
   if (!url) return new NextResponse("Missing ICS_URL", { status: 500 });
 
-  const result = await syncIcs(url, fetchLimit);
+  const futureOnly = (process.env.ICS_FUTURE_ONLY ?? '').toLowerCase() === 'true';
+
+  const result = await syncIcs(url, fetchLimit, futureOnly);
   return NextResponse.json(result);
 }

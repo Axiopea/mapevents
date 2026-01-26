@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import CalendarPanel from "@/components/CalendarPanel";
 import MapPanel from "@/components/MapPanel";
 import SplitView from "@/components/SplitView";
+import AdminImportPanel from "@/components/AdminImportPanel";
 import type { DateRange, EventItem } from "@/components/types";
 
 export default function AdminPage() {
@@ -12,6 +13,7 @@ export default function AdminPage() {
   const [focusId, setFocusId] = useState<string | null>(null);
 
   const [statusMode, setStatusMode] = useState<"approved" | "notApproved">("approved");
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -25,7 +27,7 @@ export default function AdminPage() {
       setItems(data.items ?? []);
     };
     load();
-  }, [range, statusMode]);
+  }, [range, statusMode, reloadToken]);
 
   return (
     <div className="appShell">
@@ -37,6 +39,8 @@ export default function AdminPage() {
       </header>
 
       <div className="content">
+        <AdminImportPanel onImported={() => setReloadToken((x) => x + 1)} />
+
         <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8 }}>
           <button
             onClick={() => setStatusMode("approved")}

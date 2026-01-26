@@ -24,7 +24,7 @@ function eventSourceIdFrom(uid: string, startAt: Date): string {
   return `${uid}#${startAt.toISOString()}`;
 }
 
-async function fetchICSEventsFrom(icsUrl: string, fetchLimit: number)
+async function fetchICSEventsFrom(icsUrl: string, fetchLimit: number, futureOnly: boolean)
 {
   const out: ExternalEvent[] = [];
 
@@ -51,6 +51,11 @@ async function fetchICSEventsFrom(icsUrl: string, fetchLimit: number)
 
     const startAt = item.start ? new Date(item.start) : null;
     if (!startAt || Number.isNaN(startAt.getTime())) { skipped++; continue; }
+
+    if (futureOnly) {
+      const now = new Date();
+      if (startAt.getTime() < now.getTime()) { skipped++; continue; }
+    }
 
     const endAt = item.end ? new Date(item.end) : null;
 
@@ -89,12 +94,12 @@ async function fetchICSEventsFrom(icsUrl: string, fetchLimit: number)
   return { results: out, fetchedCount: fetched, skippedCount: skipped, geocodedCount: geocoded };
 }
 
-export async function syncIcs(icsUrl: string, fetchLimit: number) {
+export async function syncIcs(icsUrl: string, fetchLimit: number, futureOnly: boolean = false) {
   const run = await prisma.syncRun.create({
     data: { source: "other" },
   });
 
-  const { results, fetchedCount, skippedCount, geocodedCount } = await fetchICSEventsFrom(icsUrl, fetchLimit);
+  const { results, fetchedCount, skippedCount, geocodedCount } = await fetchICSEventsFrom(icsUrl, fetchLimit, futureOnly);
 
   const { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
 
