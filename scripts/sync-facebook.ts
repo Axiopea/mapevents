@@ -31,7 +31,7 @@ async function searchIndexedFacebookEvents(q: string, limit = 10) {
   const seen = new Set<string>();
 
   let fetched = 0;
-  let skipped = 0
+  let skipped = 0;
 
   for (const r of organic) {
     fetched++;
@@ -103,12 +103,12 @@ async function searchIndexedFacebookEvents(q: string, limit = 10) {
 
 export async function syncFacebook(q: string, limit = 10) {
   const run = await prisma.syncRun.create({
-    data: { source: "other" },
+    data: { source: "facebook" },
   });
 
-  let { results, fetchedCount, skippedCount } = await searchIndexedFacebookEvents(q, Math.min(100, Math.max(1, limit)));
+  const { results, fetchedCount, skippedCount } = await searchIndexedFacebookEvents(q, Math.min(100, Math.max(1, limit)));
 
-  let { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
+  const { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
 
   console.info("Facebook search import finished");
   
