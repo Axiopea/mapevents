@@ -14,6 +14,7 @@ export default function AdminPage() {
 
   const [statusMode, setStatusMode] = useState<"approved" | "notApproved">("approved");
   const [reloadToken, setReloadToken] = useState(0);
+  const [showImportPanel, setShowImportPanel] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -39,8 +40,6 @@ export default function AdminPage() {
       </header>
 
       <div className="content">
-        <AdminImportPanel onImported={() => setReloadToken((x) => x + 1)} />
-
         <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8 }}>
           <button
             onClick={() => setStatusMode("approved")}
@@ -71,7 +70,31 @@ export default function AdminPage() {
           >
             Not Approved
           </button>
+
+          <button
+            onClick={() => setShowImportPanel((v) => !v)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: showImportPanel ? "#111" : "#fff",
+              color: showImportPanel ? "#fff" : "#111",
+              fontWeight: 800,
+              cursor: "pointer",
+              marginLeft: 8,
+            }}
+            aria-expanded={showImportPanel}
+            aria-controls="admin-import-panel"
+          >
+            {showImportPanel ? "Hide Import" : "Show Import"}
+          </button>
         </div>
+
+        {showImportPanel && (
+          <div id="admin-import-panel">
+            <AdminImportPanel onImported={() => setReloadToken((x) => x + 1)} />
+          </div>
+        )}
 
         <SplitView
           initialLeftPct={42}

@@ -24,18 +24,12 @@ function asNullableText(v: unknown): string | null {
 
 function parseExcelDate(v: unknown): Date | null {
   if (!v) return null;
-
-  // Already a Date
   if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
-
-  // Excel serial date number
   if (typeof v === "number" && Number.isFinite(v)) {
     const d = XLSX.SSF.parse_date_code(v);
     if (!d) return null;
     return new Date(Date.UTC(d.y, (d.m ?? 1) - 1, d.d ?? 1, d.H ?? 0, d.M ?? 0, d.S ?? 0));
   }
-
-  // ISO / human string
   const s = asText(v);
   if (!s) return null;
   const d = new Date(s);
@@ -100,7 +94,6 @@ export async function syncExcel(input: SyncExcelInput) {
 
     if (!title || !startAt || !place) {
       skipped++;
-      if (!startAt) console.log('StartAt is null');
       continue;
     }
 
