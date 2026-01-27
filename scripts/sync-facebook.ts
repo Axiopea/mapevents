@@ -11,12 +11,9 @@ function extractEventId(url: string) {
   return m?.[1] ?? null;
 }
 
-async function searchIndexedFacebookEvents(limit = 10) {
+async function searchIndexedFacebookEvents(q: string, limit = 10) {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) throw new Error("Missing SERPAPI_KEY");
-
-  const q = process.env.FB_SEARCH_QUERY;
-  if (!q) throw new Error("Missing FB_SEARCH_QUERY");
 
   const url = new URL("https://serpapi.com/search.json");
   url.searchParams.set("engine", "google");
@@ -34,7 +31,7 @@ async function searchIndexedFacebookEvents(limit = 10) {
   const seen = new Set<string>();
 
   let fetched = 0;
-  let skipped = 0
+  let skipped = 0;
 
   for (const r of organic) {
     fetched++;
@@ -104,14 +101,14 @@ async function searchIndexedFacebookEvents(limit = 10) {
   return { q, results: out, raw: json, fetchedCount: fetched, skippedCount: skipped };
 }
 
-export async function syncFacebook(limit = 10) {
+export async function syncFacebook(q: string, limit = 10) {
   const run = await prisma.syncRun.create({
-    data: { source: "other" },
+    data: { source: "facebook" },
   });
 
-  let { q, results, fetchedCount, skippedCount } = await searchIndexedFacebookEvents(Math.min(100, Math.max(1, limit)));
+  const { results, fetchedCount, skippedCount } = await searchIndexedFacebookEvents(q, Math.min(100, Math.max(1, limit)));
 
-  let { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
+  const { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
 
   console.info("Facebook search import finished");
   

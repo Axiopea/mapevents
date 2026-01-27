@@ -9,6 +9,9 @@ export async function GET(req: Request) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  const result = await syncFacebook();
+  const q = process.env.FB_SEARCH_QUERY;
+  if (!q) throw new Error("Missing FB_SEARCH_QUERY");
+
+  const result = await syncFacebook(q);
   return NextResponse.json(result);
 }

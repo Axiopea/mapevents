@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import CalendarPanel from "@/components/CalendarPanel";
 import MapPanel from "@/components/MapPanel";
 import SplitView from "@/components/SplitView";
+import AdminImportPanel from "@/components/AdminImportPanel";
 import type { DateRange, EventItem } from "@/components/types";
 
 export default function AdminPage() {
@@ -12,6 +13,8 @@ export default function AdminPage() {
   const [focusId, setFocusId] = useState<string | null>(null);
 
   const [statusMode, setStatusMode] = useState<"approved" | "notApproved">("approved");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [showImportPanel, setShowImportPanel] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -25,7 +28,7 @@ export default function AdminPage() {
       setItems(data.items ?? []);
     };
     load();
-  }, [range, statusMode]);
+  }, [range, statusMode, reloadToken]);
 
   return (
     <div className="appShell">
@@ -67,7 +70,31 @@ export default function AdminPage() {
           >
             Not Approved
           </button>
+
+          <button
+            onClick={() => setShowImportPanel((v) => !v)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: showImportPanel ? "#111" : "#fff",
+              color: showImportPanel ? "#fff" : "#111",
+              fontWeight: 800,
+              cursor: "pointer",
+              marginLeft: 8,
+            }}
+            aria-expanded={showImportPanel}
+            aria-controls="admin-import-panel"
+          >
+            {showImportPanel ? "Hide Import" : "Show Import"}
+          </button>
         </div>
+
+        {showImportPanel && (
+          <div id="admin-import-panel">
+            <AdminImportPanel onImported={() => setReloadToken((x) => x + 1)} />
+          </div>
+        )}
 
         <SplitView
           initialLeftPct={42}
@@ -90,6 +117,8 @@ export default function AdminPage() {
                 <MapPanel
                   admin
                   items={items}
+                  focusId={focusId}
+                  onMarkerClick={(id) => setFocusId(id)}
                   onEventDeleted={(id) => {
                     setItems((prev) => prev.filter((x) => x.id !== id));
                   }}
