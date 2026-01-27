@@ -36,6 +36,27 @@ function groupByCity(items: EventItem[]) {
   });
 }
 
+/**
+ * Group events by identical coordinates.
+ * Requirement: events with the same coordinates must stay grouped even on close zoom.
+ */
+function groupByLngLat(items: EventItem[]) {
+  const map = new Map<string, EventItem[]>();
+
+  for (const e of items) {
+    // Strict match for "identical coordinates"
+    const key = `${e.lng}:${e.lat}`;
+    const arr = map.get(key) ?? [];
+    arr.push(e);
+    map.set(key, arr);
+  }
+
+  return Array.from(map.entries()).map(([key, events]) => {
+    events.sort((a, b) => a.startAt.localeCompare(b.startAt));
+    return { key, events };
+  });
+}
+
 export default function MapPanel({
   items,
   focusId,
@@ -48,6 +69,11 @@ export default function MapPanel({
   const mapRef = useRef<MLMap | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<Popup | null>(null);
+
+  // Keep references to rendered markers (so we can fully remove them, not only their DOM)
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  // Trigger redraw on zoom (so grouped markers can split into individual events)
+  const [zoomTick, setZoomTick] = useState(0);
 
   const [addMode, setAddMode] = useState(false);
   const draftMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -92,6 +118,9 @@ export default function MapPanel({
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
+
+    const onZoomEnd = () => setZoomTick((t) => t + 1);
+    map.on("zoomend", onZoomEnd);
 
     map.on("click", (ev) => {
       if (!admin) return;
@@ -241,8 +270,6 @@ export default function MapPanel({
             draftMarkerRef.current = null;
             draftLngLatRef.current = null;
 
-            // MVP: можно оставить reload (создание влияет на список).
-            // Если хочешь без reload — скажи, добавим onEventCreated.
             window.location.reload();
           } catch (err: any) {
             if (errBox) errBox.textContent = err?.message || "Failed to save";
@@ -254,6 +281,14 @@ export default function MapPanel({
     return () => {
       popupListenersAbortRef.current?.abort();
       popupRef.current?.remove();
+
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+
+      draftMarkerRef.current?.remove();
+      draftMarkerRef.current = null;
+
+      map.off("zoomend", onZoomEnd);
       map.remove();
       mapRef.current = null;
     };
@@ -263,13 +298,14 @@ export default function MapPanel({
     const map = mapRef.current;
     if (!map) return;
 
-    const old = document.querySelectorAll(".evt-marker");
-    old.forEach((n) => n.remove());
+    // Remove old markers (both grouped and single)
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
 
-    const oldGrp = document.querySelectorAll(".evt-cal-stack");
-    oldGrp.forEach((n) => n.remove());
+    const GROUP_UNTIL_ZOOM = 11; // <= show grouped by city; > show individual, but keep same-coords grouped
+    const z = map.getZoom();
 
-    const groups = groupByCity(items);
+    const groups = z > GROUP_UNTIL_ZOOM ? groupByLngLat(items) : groupByCity(items);
 
     groups.forEach(({ events }) => {
       const first = events[0];
@@ -338,7 +374,6 @@ export default function MapPanel({
           return;
         }
 
-        // !!! ВАЖНО: перед popup со списком тоже сбрасываем старые listeners
         popupListenersAbortRef.current?.abort();
         popupListenersAbortRef.current = new AbortController();
 
@@ -352,23 +387,24 @@ export default function MapPanel({
               timeZone: "UTC",
             });
 
-            const link = e.sourceUrl
-              ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>`
-              : "";
+            const link = e.sourceUrl ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>` : "";
 
             const st = (e as any).status as string | undefined;
-
             const canEditRow = admin && (st === "draft" || st === "pending");
 
             const rowAdminControls = admin
               ? `
                 <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
-                  ${canEditRow ? `
+                  ${
+                    canEditRow
+                      ? `
                     <button data-action="edit" data-id="${e.id}"
                       style="padding:6px 10px;border-radius:10px;border:1px solid #111;background:#fff;font-weight:800;cursor:pointer">
                       Edit
                     </button>
-                  ` : ""}
+                  `
+                      : ""
+                  }
                   <button data-action="delete" data-id="${e.id}"
                     style="padding:6px 10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
                     Delete
@@ -490,15 +526,17 @@ export default function MapPanel({
         map.easeTo({ center: [first.lng, first.lat], zoom: Math.max(map.getZoom(), 15) });
       });
 
-      new maplibregl.Marker({
+      const marker = new maplibregl.Marker({
         element: el,
         anchor: "bottom",
         offset: [0, -16],
       })
         .setLngLat([first.lng, first.lat])
         .addTo(map);
+
+      markersRef.current.push(marker);
     });
-  }, [items, onMarkerClick, admin, onEventDeleted, onEventStatusChanged]);
+  }, [items, zoomTick, onMarkerClick, admin, onEventDeleted, onEventStatusChanged]);
 
   function openEventPopup(map: MLMap, e: EventItem) {
     popupListenersAbortRef.current?.abort();
@@ -540,12 +578,16 @@ export default function MapPanel({
     const editDeleteControls = admin
       ? `
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          ${canEdit ? `
+          ${
+            canEdit
+              ? `
             <button data-action="edit" data-id="${e.id}"
               style="padding:6px 10px;border-radius:10px;border:1px solid #111;background:#fff;font-weight:800;cursor:pointer">
               Edit
             </button>
-          ` : ""}
+          `
+              : ""
+          }
           <button data-action="delete" data-id="${e.id}"
             style="padding:6px 10px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer">
             Delete
@@ -768,7 +810,6 @@ export default function MapPanel({
             throw new Error(j?.error || `HTTP ${r.status}`);
           }
 
-          // ✅ без reload: обновляем список у родителя
           onEventEdited?.(e.id, {
             title,
             place: place || null,
@@ -776,7 +817,6 @@ export default function MapPanel({
             endAt: endIso,
           });
 
-          // сразу показать обновлённое
           openEventPopup(map, { ...e, title, place: place || null, startAt: startIso, endAt: endIso });
         } catch (e2) {
           console.error(e2);
@@ -822,7 +862,7 @@ export default function MapPanel({
   );
 }
 
-// HTML protect?
+// HTML protect
 function escapeHtml(s: string) {
   return s
     .replaceAll("&", "&amp;")
