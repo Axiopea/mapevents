@@ -346,7 +346,7 @@ export default function MapPanel({
     popupRef.current = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
       .setHTML(
-        `<div style="width: 320px;max-width: calc(100vw - 32px);padding: 12px;border-radius: 12px;">
+        `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
           <div style="display:flex;align-items:center;gap:8px">
             <strong>${escapeHtml(e.title)}</strong>
             ${statusBadge(st)}
@@ -451,7 +451,7 @@ export default function MapPanel({
     popupRef.current = new maplibregl.Popup({ offset: 16, closeOnClick: false })
       .setLngLat([e.lng, e.lat])
       .setHTML(`
-        <div style="width: 320px;max-width: calc(100vw - 32px);padding: 12px;border-radius: 12px;">
+        <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
           <div style="font-weight:800;margin-bottom:8px">Edit event</div>
 
           <form id="evt-edit-form" style="display:flex;flex-direction:column;gap:8px">
@@ -625,7 +625,7 @@ export default function MapPanel({
         .addTo(map);
 
       const html = `
-        <div style="width: 320px;max-width: calc(100vw - 32px);padding: 12px;border-radius: 12px;">
+        <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
           <div style="font-weight:800;margin-bottom:8px">New event</div>
           <form id="evt-form" style="display:flex;flex-direction:column;gap:8px">
             <input name="title" placeholder="Title" required style="width: 100%;box-sizing: border-box;padding:8px;border:1px solid #ddd;border-radius:8px"/>
