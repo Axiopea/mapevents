@@ -14,8 +14,8 @@ function buildFacebookQuery(opts: { city: string; month: number; year: number; k
   parts.push("site:facebook.com/events");
   if (opts.city.trim()) parts.push(`(${opts.city.trim()})`);
   const mName = monthName(opts.month);
-  // keep user's original idea: January OR Jan OR stycznia (pl)
-  const monthOr = `(${mName} OR ${mName.slice(0, 3)} OR stycznia)`;
+
+  const monthOr = `(${mName} OR ${mName.slice(0, 3)})`;
   parts.push(monthOr);
   parts.push(String(opts.year));
   if (opts.keywords.trim()) parts.push(opts.keywords.trim());
