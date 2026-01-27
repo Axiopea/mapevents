@@ -22,15 +22,13 @@ function formatDateTimeRange(arg: EventContentArg) {
   if (!start) return "";
 
   // Date + time start
-  const dateStr = start.toLocaleDateString("en-us", {year: "numeric", month: "2-digit", day: "2-digit"});
-
-  const startTime = start.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
+  const dateStr = start.toLocaleDateString("en-us", { year: "numeric", month: "2-digit", day: "2-digit" });
+  const startTime = start.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 
   // No end - show only time start
   if (!end) return `${dateStr} ${startTime}`;
 
-  const endTime = end.toLocaleTimeString("pl-pl", {hour: "2-digit", minute: "2-digit", timeZone:"UTC"});
-
+  const endTime = end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   return `${startTime} ${endTime}`;
 }
 
@@ -40,7 +38,19 @@ export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Pr
       plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
       timeZone="UTC"
       initialView="dayGridMonth"
-      height="auto"
+      /**
+       * Prevent the whole calendar from growing when a day contains many events.
+       * The calendar is inside a flex panel with fixed height, so we let FullCalendar
+       * fit itself to the available space.
+       */
+      height="100%"
+      expandRows
+      /**
+       * Show at most 3 events inside a day cell (month view).
+       * FullCalendar will render a “+X more” link / popover for the rest.
+       */
+      dayMaxEvents={3}
+      dayMaxEventRows={3}
       firstDay={1}
       locale="en"
       headerToolbar={{
@@ -49,31 +59,26 @@ export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Pr
         right: "dayGridMonth,timeGridWeek,listWeek",
       }}
       events={toFullCalendarEvents(items)}
-
       eventDidMount={(info: EventMountArg) => {
-      const ep: any = info.event.extendedProps;
+        const ep: any = info.event.extendedProps;
 
-      const city  = ep?.city ?? "";
-      const place = ep?.place ?? "";
-      const title = ep?.title ?? info.event.title ?? "";
-      const url   = ep?.sourceUrl ?? info.event.url ?? "";
+        const city = ep?.city ?? "";
+        const place = ep?.place ?? "";
+        const title = ep?.title ?? info.event.title ?? "";
+        const url = ep?.sourceUrl ?? info.event.url ?? "";
 
-      info.el.setAttribute("title", `${city} ${place} ${title}${url ? `\n${url}` : ""}`);
+        info.el.setAttribute("title", `${city} ${place} ${title}${url ? `\n${url}` : ""}`);
       }}
-
       datesSet={(arg: DatesSetArg) => {
         onRangeChange({ from: arg.start.toISOString(), to: arg.end.toISOString() });
       }}
-
       eventClick={(info) => {
         // focus on map, link in popup
         info.jsEvent.preventDefault();
         onEventFocus(info.event.id);
       }}
-
       eventContent={(arg) => {
-
-        // we draw start/end time 
+        // we draw start/end time
         const when = formatDateTimeRange(arg);
 
         const ep: any = arg.event.extendedProps;
