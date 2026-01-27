@@ -117,6 +117,8 @@ export default function AdminPage() {
                 <MapPanel
                   admin
                   items={items}
+                  focusId={focusId}
+                  onMarkerClick={(id) => setFocusId(id)}
                   onEventDeleted={(id) => {
                     setItems((prev) => prev.filter((x) => x.id !== id));
                   }}
