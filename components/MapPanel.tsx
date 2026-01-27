@@ -447,10 +447,22 @@ export default function MapPanel({
         popupRef.current = new maplibregl.Popup({ offset: 16 })
           .setLngLat([first.lng, first.lat])
           .setHTML(
-            `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
-              <strong>${escapeHtml(first.city)}</strong>
-              <div style="opacity:.8;margin-top:4px">${events.length} events</div>
-              <div style="margin-top:8px">${listHtml}</div>
+            `<div style="width: 340px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                <div>
+                  <strong>${escapeHtml(first.city)}</strong>
+                  <div style="opacity:.8;margin-top:4px">${events.length} events</div>
+                </div>
+              </div>
+
+              <div style="
+                margin-top:10px;
+                max-height: min(55vh, 360px);
+                overflow:auto;
+                padding-right: 6px;
+              ">
+                ${listHtml}
+              </div>
             </div>`
           )
           .addTo(map);
