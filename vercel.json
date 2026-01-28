@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/sync-facebook",
       "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/cron/fb-indexed",
-      "schedule": "0 4 * * *"
     }
   ]
 }
