@@ -149,8 +149,12 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
 
       {tab === "facebook" && (
         <div style={{ paddingTop: 12, display: "grid", gap: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px", gap: 8 }}>
-            <label style={{ display: "grid", gap: 4 }}>
+          <div style={{
+            display: "grid",
+            gap: 8,
+            gridTemplateColumns: "minmax(0, 200px) minmax(120px, 160px) minmax(96px, 120px)",
+          }}>
+            <label style={{ display: "grid", gap: 4, minWidth: 0 }}>
               <span style={{ fontSize: 12, opacity: 0.7 }}>City</span>
               <input value={fbCity} onChange={(e) => { setFbCity(e.target.value); setFbManual(false); }} className="input" />
             </label>
