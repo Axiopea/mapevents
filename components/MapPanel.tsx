@@ -71,6 +71,15 @@ export default function MapPanel({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<Popup | null>(null);
 
+  // Keep latest items accessible from map event handlers (avoid stale closures)
+  const itemsRef = useRef<EventItem[]>(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  // Used to distinguish user-closed popups (X / click outside) from programmatic popup replacements.
+  const suppressCloseClearRef = useRef(false);
+
   // Markers
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const [zoomTick, setZoomTick] = useState(0);
@@ -85,6 +94,7 @@ export default function MapPanel({
 
   // Keep popup "context" stable across updates (delete/approve/reject/edit)
   const activePopupRef = useRef<ActivePopup>(null);
+  const lastFocusIdRef = useRef<string | null>(null);
 
   const addModeRef = useRef(false);
   useEffect(() => {
@@ -116,15 +126,88 @@ export default function MapPanel({
     popupListenersAbortRef.current = new AbortController();
   }
 
-  function closePopup() {
+  function closePopup(preserveActive = false) {
     clearPopupListeners();
+    suppressCloseClearRef.current = preserveActive;
     popupRef.current?.remove();
+    suppressCloseClearRef.current = false;
     popupRef.current = null;
+  }
+
+  function bindPopupClose(p: Popup) {
+    // If the user closes the popup, ensure we don't re-open it on zoom.
+    p.on("close", () => {
+      clearPopupListeners();
+
+      // Only clear active context if this close was user-initiated.
+      if (!suppressCloseClearRef.current) {
+        activePopupRef.current = null;
+      }
+
+      if (popupRef.current === p) popupRef.current = null;
+    });
+  }
+
+  function rehydrateActivePopup(map: MLMap, onlyIfPopupOpen: boolean) {
+    if (onlyIfPopupOpen && !popupRef.current) return;
+
+    const active = activePopupRef.current;
+    if (!active) return;
+
+    const currentItems = itemsRef.current;
+
+    if (active.kind === "single") {
+      const e = currentItems.find((x) => x.id === active.id);
+      if (!e) {
+        activePopupRef.current = null;
+        closePopup();
+        return;
+      }
+      renderSinglePopup(map, e, false);
+      return;
+    }
+
+    if (active.kind === "edit") {
+      const e = currentItems.find((x) => x.id === active.id);
+      if (!e) {
+        activePopupRef.current = null;
+        closePopup();
+        return;
+      }
+      openEditPopup(map, e, false);
+      return;
+    }
+
+    if (active.kind === "group") {
+      const z = map.getZoom();
+      const anchor = { lng: active.lng, lat: active.lat };
+
+      const nextEvents =
+        z > GROUP_UNTIL_ZOOM
+          ? currentItems.filter((e) => e.lng === active.lng && e.lat === active.lat)
+          : currentItems.filter((e) => e.city === active.city);
+
+      nextEvents.sort((a, b) => a.startAt.localeCompare(b.startAt));
+
+      if (nextEvents.length === 0) {
+        activePopupRef.current = null;
+        closePopup();
+        return;
+      }
+
+      if (nextEvents.length === 1) {
+        activePopupRef.current = { kind: "single", id: nextEvents[0].id };
+        renderSinglePopup(map, nextEvents[0], false);
+        return;
+      }
+
+      renderGroupPopup(map, anchor, active.city, nextEvents);
+    }
   }
 
   function renderGroupPopup(map: MLMap, anchor: { lng: number; lat: number }, city: string, events: EventItem[]) {
     clearPopupListeners();
-    closePopup();
+    closePopup(true);
 
     const listHtml = events
       .map((e) => {
@@ -201,7 +284,7 @@ export default function MapPanel({
       .join("");
 
     // Scrollable body (variant 1)
-    popupRef.current = new maplibregl.Popup({ offset: 16 })
+    const p = new maplibregl.Popup({ offset: 16 })
       .setLngLat([anchor.lng, anchor.lat])
       .setHTML(
         `<div style="width: 340px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
@@ -223,6 +306,9 @@ export default function MapPanel({
         </div>`
       )
       .addTo(map);
+
+    popupRef.current = p;
+    bindPopupClose(p);
 
     // bind actions for buttons
     setTimeout(() => {
@@ -298,7 +384,10 @@ export default function MapPanel({
 
   function renderSinglePopup(map: MLMap, e: EventItem, doEase: boolean) {
     clearPopupListeners();
-    closePopup();
+    closePopup(true);
+    const sourceLink = e.sourceUrl
+      ? `<div style="margin-top:8px"><a href="${e.sourceUrl}" target="_blank" rel="noreferrer">Source URL</a></div>`
+      : "";
 
     const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: "UTC" });
 
@@ -354,7 +443,7 @@ export default function MapPanel({
       `
       : "";
 
-    popupRef.current = new maplibregl.Popup({ offset: 16 })
+    const p = new maplibregl.Popup({ offset: 16 })
       .setLngLat([e.lng, e.lat])
       .setHTML(
         `<div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
@@ -364,11 +453,15 @@ export default function MapPanel({
           </div>
           <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
           <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          ${sourceLink}
           ${editDeleteControls}
           ${controls}
         </div>`
       )
       .addTo(map);
+
+    popupRef.current = p;
+    bindPopupClose(p);
 
     setTimeout(() => {
       const root = popupRef.current?.getElement();
@@ -454,12 +547,12 @@ export default function MapPanel({
 
   function openEditPopup(map: MLMap, e: EventItem, doEase: boolean) {
     clearPopupListeners();
-    closePopup();
+    closePopup(true);
 
     const startVal = toLocalInputValue(e.startAt);
     const endVal = e.endAt ? toLocalInputValue(e.endAt) : "";
 
-    popupRef.current = new maplibregl.Popup({ offset: 16, closeOnClick: false })
+    const p = new maplibregl.Popup({ offset: 16, closeOnClick: false })
       .setLngLat([e.lng, e.lat])
       .setHTML(`
         <div style="width: 320px;max-width: calc(100% - 32px);padding: 12px;border-radius: 12px;">
@@ -500,6 +593,9 @@ export default function MapPanel({
         </div>
       `)
       .addTo(map);
+
+    popupRef.current = p;
+    bindPopupClose(p);
 
     setTimeout(() => {
       const root = popupRef.current?.getElement();
@@ -610,7 +706,12 @@ export default function MapPanel({
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
 
-    const onZoomEnd = () => setZoomTick((t) => t + 1);
+    const onZoomEnd = () => {
+      setZoomTick((t) => t + 1);
+      // Keep popups in sync with current grouping rules while zooming,
+      // but never re-open a popup that the user already closed.
+      rehydrateActivePopup(map, true);
+    };
     map.on("zoomend", onZoomEnd);
 
     map.on("click", (ev) => {
@@ -658,10 +759,13 @@ export default function MapPanel({
         </div>
       `;
 
-      popupRef.current = new maplibregl.Popup({ offset: 14, closeOnClick: false })
+      const p = new maplibregl.Popup({ offset: 14, closeOnClick: false })
         .setLngLat([lng, lat])
         .setHTML(html)
         .addTo(map);
+
+      popupRef.current = p;
+      bindPopupClose(p);
 
       setTimeout(() => {
         const root = popupRef.current?.getElement();
@@ -886,79 +990,36 @@ export default function MapPanel({
     });
   }, [items, zoomTick]);
 
-  // Rehydrate popup after ANY items update (delete/approve/reject/edit) without "jumping"
+  // Rehydrate popup after ANY items update (delete/approve/reject/edit) without "jumping".
+  // IMPORTANT: do NOT depend on zoomTick here, otherwise a zoom would reopen a previously closed popup.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    rehydrateActivePopup(map, false);
+  }, [items]);
+
+  // Focus from outside (calendar click)
+  // IMPORTANT: do not re-apply focus on every items update, otherwise any mutation (approve/reject/delete)
+  // would "steal" focus back to the last focusId popup.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    const active = activePopupRef.current;
-    if (!active) return;
-
-    if (active.kind === "single") {
-      const e = items.find((x) => x.id === active.id);
-      if (!e) {
-        activePopupRef.current = null;
-        closePopup();
-        return;
-      }
-      renderSinglePopup(map, e, false);
+    if (!focusId) {
+      lastFocusIdRef.current = null;
       return;
     }
 
-    if (active.kind === "edit") {
-      const e = items.find((x) => x.id === active.id);
-      if (!e) {
-        activePopupRef.current = null;
-        closePopup();
-        return;
-      }
-      openEditPopup(map, e, false);
-      return;
-    }
+    // Only react to *changes* of focusId
+    if (lastFocusIdRef.current === focusId) return;
+    lastFocusIdRef.current = focusId;
 
-    if (active.kind === "group") {
-      const z = map.getZoom();
-
-      // Keep anchor stable at the originally clicked point
-      const anchor = { lng: active.lng, lat: active.lat };
-
-      // Decide what the "group" means at current zoom
-      const nextEvents =
-        z > GROUP_UNTIL_ZOOM
-          ? items.filter((e) => e.lng === active.lng && e.lat === active.lat)
-          : items.filter((e) => e.city === active.city);
-
-      nextEvents.sort((a, b) => a.startAt.localeCompare(b.startAt));
-
-      if (nextEvents.length === 0) {
-        activePopupRef.current = null;
-        closePopup();
-        return;
-      }
-
-      if (nextEvents.length === 1) {
-        // group collapsed into single — keep user on this location, no jump
-        activePopupRef.current = { kind: "single", id: nextEvents[0].id };
-        renderSinglePopup(map, nextEvents[0], false);
-        return;
-      }
-
-      // still a group — rerender it, no easeTo
-      renderGroupPopup(map, anchor, active.city, nextEvents);
-    }
-  }, [items, zoomTick]);
-
-  // Focus from outside (calendar click)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !focusId) return;
-
-    const e = items.find((x) => x.id === focusId);
+    const e = itemsRef.current.find((x) => x.id === focusId);
     if (!e) return;
 
     activePopupRef.current = { kind: "single", id: e.id };
     renderSinglePopup(map, e, true);
-  }, [focusId, items]);
+  }, [focusId]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
