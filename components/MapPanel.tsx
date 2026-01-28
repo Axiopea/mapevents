@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { Map as MLMap, Popup } from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import type { EventItem } from "./types";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
   items: EventItem[];
@@ -127,7 +128,17 @@ export default function MapPanel({
 
     const listHtml = events
       .map((e) => {
-        const tSt = new Date(e.startAt).toLocaleTimeString("en-us", {
+        const d = new Date(e.startAt);
+
+        // In the group list we show BOTH date and time (previously only time)
+        const dSt = d.toLocaleDateString("pl-PL", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: "UTC",
+        });
+
+        const tSt = d.toLocaleTimeString("en-us", {
           hour: "2-digit",
           minute: "2-digit",
           timeZone: "UTC",
@@ -177,7 +188,7 @@ export default function MapPanel({
         return `
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">
             <div>
-              <strong>${tSt}</strong>
+              <strong>${dSt} ${tSt}</strong>
               ${escapeHtml(e.title)}
               ${statusBadge(st)}
               ${link}
