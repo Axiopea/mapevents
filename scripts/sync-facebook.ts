@@ -82,7 +82,29 @@ function pickEventLdJson(blocks: any[]): any | null {
 }
 
 function extractLatLngFromHtml(html: string): { lat: number; lng: number } | null {
-  // 1) common JSON patterns
+  // 0) Map/staticmap URL patterns (часто именно тут есть точка)
+  const urlPatterns: RegExp[] = [
+    // center=52.23,21.01
+    /\bcenter=([0-9.+-]{4,})\s*,\s*([0-9.+-]{4,})\b/i,
+    // markers=52.23,21.01 or marker=...
+    /\bmarkers?=([0-9.+-]{4,})\s*,\s*([0-9.+-]{4,})\b/i,
+    // ll=52.23,21.01 (Apple Maps / others)
+    /\bll=([0-9.+-]{4,})\s*,\s*([0-9.+-]{4,})\b/i,
+    // q=52.23,21.01 or query=52.23,21.01
+    /\b(?:q|query)=([0-9.+-]{4,})\s*,\s*([0-9.+-]{4,})\b/i,
+    // "latitude":52.23,"longitude":21.01 inside URL-encoded or plain
+    /\blatitude%22%3A([0-9.+-]{4,}).{0,40}?longitude%22%3A([0-9.+-]{4,})/i,
+  ];
+
+  for (const re of urlPatterns) {
+    const m = html.match(re);
+    if (!m?.[1] || !m?.[2]) continue;
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  // 1) JSON patterns
   const patterns: Array<[RegExp, RegExp]> = [
     [/"latitude"\s*:\s*([0-9.+-]+)/i, /"longitude"\s*:\s*([0-9.+-]+)/i],
     [/\b"lat"\s*:\s*([0-9.+-]+)/i, /\b"lng"\s*:\s*([0-9.+-]+)/i],
@@ -100,6 +122,7 @@ function extractLatLngFromHtml(html: string): { lat: number; lng: number } | nul
 
   return null;
 }
+
 
 function stripVisibleText(html: string): string {
   // remove scripts/styles

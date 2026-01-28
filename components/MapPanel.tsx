@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { Map as MLMap, Popup } from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import type { EventItem } from "./types";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
   items: EventItem[];
