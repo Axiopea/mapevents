@@ -111,8 +111,7 @@ async function apifyItemsToExternalEvents(items: any[]) {
       asDate(it?.endTime) ||
       asDate(it?.endTimestamp);
 
-    const title = pickString(it?.name) || pickString(it?.title);
-    if (!title) continue;
+    const title = pickString(it?.name) || pickString(it?.title) || "Unnamed event";
 
     const description = pickString(it?.description) || null;
     const url = pickString(it?.url) || null;
