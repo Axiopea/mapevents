@@ -3,26 +3,9 @@ import { EventSource } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ExternalEvent } from "@/lib/import/types";
 import { importEvents } from "../scripts/import-from-external";
-import { geocodeNominatim } from "@/lib/geocode/nominatim";
+import { reverseGeocodeNominatimCity } from "@/lib/geocode/nominatim";
 
-/**
- * Uses Apify Actor `apify/facebook-events-scraper` (NO SerpAPI).
- *
- * Required env:
- * - APIFY_TOKEN
- * Optional env:
- * - APIFY_FACEBOOK_ACTOR_ID (default: apify~facebook-events-scraper)
- * - APIFY_TIMEOUT_SECS (default: 240)  // Apify sync endpoint limit is 300s
- */
 const DEFAULT_ACTOR_ID = "apify~facebook-events-scraper";
-
-function inferTargetCityFromQuery(q: string): string | null {
-  // keep old convention: query like "(Radom)" → use as fallback city
-  const m = q.match(/\(([^)]+)\)/);
-  if (!m?.[1]) return null;
-  const city = m[1].trim();
-  return city.length >= 2 ? city : null;
-}
 
 function asDate(v: any): Date | null {
   if (!v) return null;
@@ -54,8 +37,6 @@ async function runApifyFacebookEventsScraper(params: { query: string; maxEvents:
   const actorId = process.env.APIFY_FACEBOOK_ACTOR_ID || DEFAULT_ACTOR_ID;
   const timeoutSecs = Math.min(295, Math.max(30, Number(process.env.APIFY_TIMEOUT_SECS || 240)));
 
-  // Apify: Run Actor synchronously with input and get dataset items
-  // POST /v2/acts/:actorId/run-sync-get-dataset-items?token=...&format=json&clean=true
   const url = new URL(`https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items`);
   url.searchParams.set("token", token);
   url.searchParams.set("format", "json");
@@ -81,13 +62,11 @@ async function runApifyFacebookEventsScraper(params: { query: string; maxEvents:
   }
 
   const json = await res.json();
-
-  // Depending on params, Apify can return either an array of items or { items: [...] }.
   const items = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : [];
   return items as any[];
 }
 
-async function apifyItemsToExternalEvents(items: any[], fallbackCity: string | null) {
+async function apifyItemsToExternalEvents(items: any[]) {
   const results: ExternalEvent[] = [];
   const seen = new Set<string>();
 
@@ -105,13 +84,9 @@ async function apifyItemsToExternalEvents(items: any[], fallbackCity: string | n
     const sourceId =
       pickString(it?.id) ||
       pickString(it?.eventId) ||
-      // sometimes url contains /events/<id>
       (pickString(it?.url)?.match(/facebook\.com\/events\/(\d+)/i)?.[1] ?? null);
 
-    if (!sourceId) {
-      // can't dedupe / reference it later — skip quietly
-      continue;
-    }
+    if (!sourceId) continue;
 
     if (seen.has(sourceId)) {
       stats.duplicate++;
@@ -140,12 +115,8 @@ async function apifyItemsToExternalEvents(items: any[], fallbackCity: string | n
     if (!title) continue;
 
     const description = pickString(it?.description) || null;
-
     const url = pickString(it?.url) || null;
 
-    // Location fields vary; handle common shapes:
-    // - location: { name, city, address, latitude, longitude }
-    // - place: { name, location: { city, latitude, longitude } }
     const loc = it?.location ?? it?.place ?? null;
 
     const lat =
@@ -169,38 +140,35 @@ async function apifyItemsToExternalEvents(items: any[], fallbackCity: string | n
       pickString(it?.placeName) ||
       null;
 
-    const city = pickString(loc?.city) || pickString(loc?.location?.city) || fallbackCity || "Unknown";
-
-    let finalLat = lat;
-    let finalLng = lng;
-
-    // If no geo from Apify, try geocoding place+city as last resort.
-    if (!Number.isFinite(finalLat ?? NaN) || !Number.isFinite(finalLng ?? NaN)) {
-      const q = [placeName, city].filter(Boolean).join(", ");
-      if (q) {
-        const geo = await geocodeNominatim(q).catch(() => null);
-        if (geo?.lat && geo?.lng) {
-          finalLat = Number(geo.lat);
-          finalLng = Number(geo.lng);
-        }
-      }
-    }
-
-    if (!Number.isFinite(finalLat ?? NaN) || !Number.isFinite(finalLng ?? NaN)) {
+    if (!Number.isFinite(lat ?? NaN) || !Number.isFinite(lng ?? NaN)) {
       stats.noGeo++;
       continue;
     }
 
+    let city = pickString(loc?.city) || pickString(loc?.location?.city) || null;
+
+    if (!city && lat && lng) {
+      const cityFromCoords = await reverseGeocodeNominatimCity(lat, lng).catch(() => null);
+      city = cityFromCoords?.city ? cityFromCoords.city : null;
+    }
+
+    if (!city) {
+      stats.noGeo++;
+      continue;
+    }
+
+    const countryCode = pickString(loc?.countryCode) || pickString(loc?.location?.countryCode) || 'PL';
+
     results.push({
       title,
       description,
-      countryCode: "PL", // project currently targets PL, keep as-is
+      countryCode: countryCode,
       city,
       place: placeName,
       startAt,
       endAt,
-      lat: String(finalLat),
-      lng: String(finalLng),
+      lat: String(lat),
+      lng: String(lng),
       source: EventSource.facebook,
       sourceId,
       sourceUrl: url,
@@ -214,18 +182,14 @@ async function apifyItemsToExternalEvents(items: any[], fallbackCity: string | n
 }
 
 export async function syncFacebook(q: string, limit = 10) {
-  const run = await prisma.syncRun.create({
-    data: { source: "facebook" },
-  });
-
-  const targetCity = inferTargetCityFromQuery(q);
+  const run = await prisma.syncRun.create({ data: { source: "facebook" } });
 
   const apifyItems = await runApifyFacebookEventsScraper({
     query: q,
     maxEvents: Math.min(200, Math.max(1, limit)),
   });
 
-  const { results, stats } = await apifyItemsToExternalEvents(apifyItems, targetCity);
+  const { results, stats } = await apifyItemsToExternalEvents(apifyItems);
 
   const fetchedCount = stats.scanned;
   const skippedCount = Math.max(0, stats.scanned - stats.accepted);
