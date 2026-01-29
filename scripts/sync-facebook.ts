@@ -224,7 +224,7 @@ async function apifyItemsToExternalEvents(items: any[]) {
   return { results, stats };
 }
 
-export async function syncFacebook(q: string, limit = 10) {
+export async function syncFacebook(q: string, limit = 10, countryCode?: string | null) {
   const run = await prisma.syncRun.create({ data: { source: "facebook" } });
 
   const apifyItems = await runApifyFacebookEventsScraper({
@@ -234,10 +234,14 @@ export async function syncFacebook(q: string, limit = 10) {
 
   const { results, stats } = await apifyItemsToExternalEvents(apifyItems);
 
-  const fetchedCount = stats.scanned;
-  const skippedCount = Math.max(0, stats.scanned - stats.accepted);
+  const wanted = (countryCode || "").toUpperCase().trim();
+  const filtered = wanted ? results.filter((e) => (e.countryCode || "").toUpperCase() === wanted) : results;
+  const filteredOut = Math.max(0, results.length - filtered.length);
 
-  const { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
+  const fetchedCount = stats.scanned;
+  const skippedCount = Math.max(0, stats.scanned - stats.accepted) + filteredOut;
+
+  const { created, updated } = await importEvents(filtered, run.id, fetchedCount, skippedCount);
 
   return {
     ok: true,
@@ -245,9 +249,11 @@ export async function syncFacebook(q: string, limit = 10) {
     limit,
     actor: process.env.APIFY_FACEBOOK_ACTOR_ID || DEFAULT_ACTOR_ID,
     scanned: stats.scanned,
-    accepted: stats.accepted,
+    accepted: filtered.length,
     fetched: fetchedCount,
     skipped: skippedCount,
+    filteredOutCount: filteredOut,
+    countryCode: wanted || null,
     created,
     updated,
     skipBreakdown: {

@@ -13,6 +13,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
   items: EventItem[];
+  /** Selected country code (ISO-3166 alpha-2). Used for creating new manual events. */
+  countryCode?: string | null;
   focusId?: string | null;
   onMarkerClick?: (id: string) => void;
   /** Enables admin-only UI: add event + approve/reject controls */
@@ -65,6 +67,7 @@ type ActivePopup =
 
 export default function MapPanel({
   items,
+  countryCode,
   focusId,
   onMarkerClick,
   admin = false,
@@ -853,6 +856,7 @@ export default function MapPanel({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 title,
+                countryCode: countryCode || undefined,
                 city,
                 place: place || null,
                 startAt: startIso,

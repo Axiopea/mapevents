@@ -7,6 +7,7 @@ type Where = NonNullable<FindManyArg["where"]>;
 
 type CreateEventBody = {
   title: string;
+  countryCode?: string; // ISO-3166 alpha-2
   city: string;
   place?: string | null;
   startAt: string; // ISO
@@ -16,12 +17,21 @@ type CreateEventBody = {
   sourceUrl?: string | null;
 };
 
+function normalizeCountryCode(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim().toUpperCase();
+  if (!s) return null;
+  if (!/^[A-Z]{2}$/.test(s)) return null;
+  return s;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
   const from = searchParams.get("from"); // ISO string
   const to = searchParams.get("to");     // ISO string
   const city = searchParams.get("city"); // optional
+  const country = normalizeCountryCode(searchParams.get("country"));
 
   const mode = searchParams.get("statusMode") ?? "approved";
 
@@ -40,6 +50,10 @@ export async function GET(req: Request) {
     where.city = city;
   }
 
+  if (country) {
+    where.countryCode = country;
+  }
+
   const events = await prisma.event.findMany({
     where,
     orderBy: { startAt: "asc" },
@@ -49,6 +63,7 @@ export async function GET(req: Request) {
   const items = events.map((e) => ({
     id: e.id,
     title: e.title,
+    countryCode: e.countryCode,
     city: e.city,
     place: e.place,
     lat: Number(e.lat),
@@ -78,6 +93,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "lat/lng are required" }, { status: 400 });
   }
 
+  const countryCode = normalizeCountryCode(body.countryCode) ?? "PL";
+
   const start = new Date(body.startAt);
   const end = body.endAt ? new Date(body.endAt) : null;
 
@@ -97,7 +114,7 @@ export async function POST(req: Request) {
   const created = await prisma.event.create({
     data: {
       title: body.title.trim(),
-      countryCode: "PL",
+      countryCode,
       city: body.city.trim(),
       place: body.place?.trim() || null,
       startAt: start,
@@ -114,6 +131,7 @@ export async function POST(req: Request) {
     item: {
       id: created.id,
       title: created.title,
+      countryCode: created.countryCode,
       city: created.city,
       place: created.place,
       lat: Number(created.lat),
