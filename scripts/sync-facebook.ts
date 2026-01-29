@@ -30,6 +30,36 @@ function pickNumber(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseDurationToMs(raw: any): number | null {
+  // Apify Facebook Events Scraper examples: "3 hr", "2 hrs", "1 day", "2 days".
+  if (raw == null) return null;
+  const s = typeof raw === "string" ? raw.trim() : String(raw).trim();
+  if (!s) return null;
+
+  // Some variants might look like: "3 hr", "3h", "3 hours", "1 day", "2 days", "90 min"
+  const m = s.match(
+    /^(\d+(?:[\.,]\d+)?)\s*(hr|hrs|hour|hours|h|day|days|d|min|mins|minute|minutes|m)\b/i
+  );
+  if (!m) return null;
+
+  const value = Number(String(m[1]).replace(",", "."));
+  if (!Number.isFinite(value) || value <= 0) return null;
+
+  const unit = m[2].toLowerCase();
+  const msPerMinute = 60_000;
+  const msPerHour = 60 * msPerMinute;
+  const msPerDay = 24 * msPerHour;
+
+  if (unit === "min" || unit === "mins" || unit === "minute" || unit === "minutes" || unit === "m") {
+    return Math.round(value * msPerMinute);
+  }
+  if (unit === "day" || unit === "days" || unit === "d") {
+    return Math.round(value * msPerDay);
+  }
+  // Default: hours
+  return Math.round(value * msPerHour);
+}
+
 async function runApifyFacebookEventsScraper(params: { query: string; maxEvents: number }) {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("Missing APIFY_TOKEN");
@@ -111,6 +141,19 @@ async function apifyItemsToExternalEvents(items: any[]) {
       asDate(it?.endTime) ||
       asDate(it?.endTimestamp);
 
+    // If Apify didn't provide end date/time, derive it from duration when possible.
+    // Example: duration: "3 hr" -> endAt = startAt + 3 hours.
+    let finalEndAt = endAt;
+    if (!finalEndAt) {
+      const ms = parseDurationToMs(it?.duration);
+      if (ms != null) {
+        const t = startAt.getTime();
+        if (Number.isFinite(t)) {
+          finalEndAt = new Date(t + ms);
+        }
+      }
+    }
+
     const title = pickString(it?.name) || pickString(it?.title) || "Unnamed event";
 
     const description = pickString(it?.description) || null;
@@ -156,7 +199,8 @@ async function apifyItemsToExternalEvents(items: any[]) {
       continue;
     }
 
-    const countryCode = pickString(loc?.countryCode) || pickString(loc?.location?.countryCode) || 'PL';
+    const countryCode =
+      pickString(loc?.countryCode) || pickString(loc?.location?.countryCode) || "PL";
 
     results.push({
       title,
@@ -165,7 +209,7 @@ async function apifyItemsToExternalEvents(items: any[]) {
       city,
       place: placeName,
       startAt,
-      endAt,
+      endAt: finalEndAt,
       lat: String(lat),
       lng: String(lng),
       source: EventSource.facebook,
