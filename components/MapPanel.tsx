@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { Map as MLMap, Popup } from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import type { EventItem } from "./types";
+import {
+  getEventTimeZone,
+  isoToLocalInputValueInTimeZone,
+  localInputInTimeZoneToUtcIso,
+} from "./time";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
@@ -213,18 +218,20 @@ export default function MapPanel({
       .map((e) => {
         const d = new Date(e.startAt);
 
+        const tz = getEventTimeZone(e);
+
         // In the group list we show BOTH date and time (previously only time)
         const dSt = d.toLocaleDateString("pl-PL", {
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
-          timeZone: "UTC",
+          timeZone: tz,
         });
 
-        const tSt = d.toLocaleTimeString("en-us", {
+        const tSt = d.toLocaleTimeString("pl-PL", {
           hour: "2-digit",
           minute: "2-digit",
-          timeZone: "UTC",
+          timeZone: tz,
         });
 
         const link = e.sourceUrl ? ` <a href="${e.sourceUrl}" target="_blank" rel="noreferrer">link</a>` : "";
@@ -389,19 +396,24 @@ export default function MapPanel({
       ? `<div style="margin-top:8px"><a href="${e.sourceUrl}" target="_blank" rel="noreferrer">Source URL</a></div>`
       : "";
 
-    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: "UTC" });
+    const tz = getEventTimeZone(e);
+
+    const evDate = new Date(e.startAt).toLocaleDateString("pl-pl", { timeZone: tz });
 
     const start = new Date(e.startAt);
     const startTime = start.toLocaleTimeString("pl-pl", {
       hour: "2-digit",
       minute: "2-digit",
-      timeZone: "UTC",
+      timeZone: tz,
     });
 
     const end = e.endAt ? new Date(e.endAt) : null;
+    const evEndDate = end ? end.toLocaleDateString("pl-pl", { timeZone: tz }) : null;
     const endTime = end
-      ? end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })
+      ? end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: tz })
       : "";
+
+    const endTimeDisplay = evDate === evEndDate ? endTime : `${evEndDate} ${endTime}`;
 
     const st = (e as any).status as string | undefined;
     const canEdit = admin && (st === "draft" || st === "pending");
@@ -452,7 +464,7 @@ export default function MapPanel({
             ${statusBadge(st)}
           </div>
           <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
-          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTimeDisplay : ""}</div>
           ${sourceLink}
           ${editDeleteControls}
           ${controls}
@@ -537,20 +549,14 @@ export default function MapPanel({
     }
   }
 
-  function toLocalInputValue(iso: string) {
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-      d.getMinutes()
-    )}`;
-  }
-
   function openEditPopup(map: MLMap, e: EventItem, doEase: boolean) {
     clearPopupListeners();
     closePopup(true);
 
-    const startVal = toLocalInputValue(e.startAt);
-    const endVal = e.endAt ? toLocalInputValue(e.endAt) : "";
+    const tz = getEventTimeZone(e);
+
+    const startVal = isoToLocalInputValueInTimeZone(e.startAt, tz);
+    const endVal = e.endAt ? isoToLocalInputValueInTimeZone(e.endAt, tz) : "";
 
     const p = new maplibregl.Popup({ offset: 16, closeOnClick: false })
       .setLngLat([e.lng, e.lat])
@@ -628,14 +634,16 @@ export default function MapPanel({
           return;
         }
 
-        const startMs = Date.parse(startAtLocal);
+        const startIso = localInputInTimeZoneToUtcIso(startAtLocal, tz);
+        const startMs = Date.parse(startIso);
         if (Number.isNaN(startMs)) {
           if (errBox) errBox.textContent = "Start date/time is invalid";
           return;
         }
 
         if (endAtLocal) {
-          const endMs = Date.parse(endAtLocal);
+          const endIsoTmp = localInputInTimeZoneToUtcIso(endAtLocal, tz);
+          const endMs = Date.parse(endIsoTmp);
           if (Number.isNaN(endMs)) {
             if (errBox) errBox.textContent = "End date/time is invalid";
             return;
@@ -646,8 +654,7 @@ export default function MapPanel({
           }
         }
 
-        const startIso = new Date(startAtLocal).toISOString();
-        const endIso = endAtLocal ? new Date(endAtLocal).toISOString() : null;
+        const endIso = endAtLocal ? localInputInTimeZoneToUtcIso(endAtLocal, tz) : null;
 
         try {
           if (errBox) errBox.textContent = "";
@@ -814,14 +821,18 @@ export default function MapPanel({
             return;
           }
 
-          const startMs = Date.parse(startAtLocal);
+          const tz = getEventTimeZone({ lat: draftLngLatRef.current.lat, lng: draftLngLatRef.current.lng });
+
+          const startIso = localInputInTimeZoneToUtcIso(startAtLocal, tz);
+          const startMs = Date.parse(startIso);
           if (Number.isNaN(startMs)) {
             errBox && (errBox.textContent = "Start date/time is invalid");
             return;
           }
 
           if (endAtLocal) {
-            const endMs = Date.parse(endAtLocal);
+            const endIsoTmp = localInputInTimeZoneToUtcIso(endAtLocal, tz);
+            const endMs = Date.parse(endIsoTmp);
             if (Number.isNaN(endMs)) {
               errBox && (errBox.textContent = "End date/time is invalid");
               return;
@@ -832,8 +843,7 @@ export default function MapPanel({
             }
           }
 
-          const startIso = new Date(startAtLocal).toISOString();
-          const endIso = endAtLocal ? new Date(endAtLocal).toISOString() : null;
+          const endIso = endAtLocal ? localInputInTimeZoneToUtcIso(endAtLocal, tz) : null;
 
           try {
             errBox && (errBox.textContent = "");
@@ -906,12 +916,12 @@ export default function MapPanel({
       el.className = "evt-cal-stack";
       el.type = "button";
 
-      const tz = "UTC";
+      const tz = getEventTimeZone(first);
       const uniqueDays: string[] = [];
       const dayToEvent: EventItem[] = [];
 
       for (const ev of events) {
-        const dayKey = new Date(ev.startAt).toLocaleDateString("en-us", { timeZone: tz });
+        const dayKey = new Date(ev.startAt).toLocaleDateString("en-US", { timeZone: tz });
         if (!uniqueDays.includes(dayKey)) {
           uniqueDays.push(dayKey);
           dayToEvent.push(ev);
@@ -925,10 +935,10 @@ export default function MapPanel({
         .map((ev, idx) => {
           const d = new Date(ev.startAt);
           const mon = d
-            .toLocaleDateString("en-us", { month: "short", timeZone: tz })
+            .toLocaleDateString("en-US", { month: "short", timeZone: tz })
             .replace(".", "")
             .toUpperCase();
-          const day = d.toLocaleDateString("pl-PL", { day: "2-digit", timeZone: tz });
+          const day = d.toLocaleDateString("en-US", { day: "2-digit", timeZone: tz });
 
           const dx = idx * 8;
           const dy = idx * 3;

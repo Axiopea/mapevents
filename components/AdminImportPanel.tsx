@@ -4,22 +4,38 @@ import React, { useMemo, useState } from "react";
 
 type Tab = "facebook" | "ics" | "excel";
 
-function monthName(m: number) {
-  const en = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  return en[m - 1] ?? String(m);
+// Polish month names are often used in a few forms on event pages.
+// - standalone: "styczeń"
+// - in dates: "stycznia"
+const MONTHS_PL_NOM = [
+  "styczeń",
+  "luty",
+  "marzec",
+  "kwiecień",
+  "maj",
+  "czerwiec",
+  "lipiec",
+  "sierpień",
+  "wrzesień",
+  "październik",
+  "listopad",
+  "grudzień",
+];
+
+function monthNamePl(m: number) {
+  return MONTHS_PL_NOM[m - 1] ?? String(m);
 }
 
-function buildFacebookQuery(opts: { city: string; month: number; year: number; keywords: string }) {
-  const parts: string[] = [];
-  parts.push("site:facebook.com/events");
-  if (opts.city.trim()) parts.push(`(${opts.city.trim()})`);
-  const mName = monthName(opts.month);
+function buildFacebookQuery(opts: { city: string; month: number; year: number }) {
+  const city = (opts.city || "").trim();
+  const cityOr = city ? `(${city})` : "";
 
-  const monthOr = `(${mName} OR ${mName.slice(0, 3)})`;
-  parts.push(monthOr);
-  parts.push(String(opts.year));
-  if (opts.keywords.trim()) parts.push(opts.keywords.trim());
-  return parts.join(" ");
+  const mPl = monthNamePl(opts.month);
+  const monthOr = `(${mPl})`;
+
+  return [cityOr, monthOr, String(opts.year)]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function isValidHttpUrl(raw: string) {
@@ -34,29 +50,28 @@ function isValidHttpUrl(raw: string) {
 export default function AdminImportPanel(props: { onImported?: () => void }) {
   const [tab, setTab] = useState<Tab>("facebook");
 
-  // Facebook: builder
+  // Facebook
   const now = new Date();
-  const [fbCity, setFbCity] = useState("Bydgoszcz");
-  const [fbMonth, setFbMonth] = useState(now.getMonth() + 1);
-  const [fbYear, setFbYear] = useState(now.getFullYear());
-  const [fbKeywords, setFbKeywords] = useState("");
   const [fbQuery, setFbQuery] = useState(() =>
-    buildFacebookQuery({ city: "Bydgoszcz", month: now.getMonth() + 1, year: now.getFullYear(), keywords: "" })
+    buildFacebookQuery({
+      city: "Warszawa",
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+    })
   );
-  const [fbManual, setFbManual] = useState(false);
-  const builtFbQuery = useMemo(
-    () => buildFacebookQuery({ city: fbCity, month: fbMonth, year: fbYear, keywords: fbKeywords }),
-    [fbCity, fbMonth, fbYear, fbKeywords]
-  );
-
-  // keep query in sync unless manually edited
-  // (useEffect to avoid setState during render)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  React.useEffect(() => {
-    if (!fbManual) setFbQuery(builtFbQuery);
-  }, [builtFbQuery, fbManual]);
 
   const [fbLimit, setFbLimit] = useState(50);
+
+  const suggestedQuery = useMemo(
+    () =>
+      buildFacebookQuery({
+        city: "Warszawa",
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   // ICS
   const [icsUrl, setIcsUrl] = useState("https://calendar.mit.edu/calendar.ics");
@@ -103,40 +118,47 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
         res = await fetch("/api/admin/import", { method: "POST", body: fd });
       }
 
-      const json = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(json?.error ?? `Import failed (${res.status})`);
+        throw new Error((data && (data.error || data.message)) || `Import failed (${res.status})`);
       }
 
-      setResult(json);
+      setResult(data);
       props.onImported?.();
     } catch (e: any) {
-      setError(e?.message ?? "Import failed");
+      setError(e?.message || String(e));
     } finally {
       setRunning(false);
     }
   };
 
-  return (
-    <div style={{ border: "1px solid #e6e6e6", borderRadius: 16, padding: 12, margin: 8, background: "#fff" }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <strong style={{ fontSize: 14 }}>Import events</strong>
-        <span style={{ opacity: 0.6, fontSize: 12 }}>Facebook / ICS / Excel</span>
-      </div>
+  const tabs: Tab[] = ["facebook", "ics", "excel"];
 
-      <div style={{ display: "flex", gap: 8, paddingTop: 10, flexWrap: "wrap" }}>
-        {(["facebook", "ics", "excel"] as Tab[]).map((t) => (
+  return (
+    <div
+      style={{
+        border: "1px solid #e5e5e5",
+        borderRadius: 16,
+        padding: 14,
+        background: "#fff",
+        display: "grid",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {tabs.map((t) => (
           <button
             key={t}
+            type="button"
             onClick={() => setTab(t)}
             style={{
-              padding: "7px 10px",
-              borderRadius: 999,
+              padding: "8px 12px",
+              borderRadius: 12,
               border: "1px solid #ddd",
               background: tab === t ? "#111" : "#fff",
               color: tab === t ? "#fff" : "#111",
-              fontWeight: 800,
               cursor: "pointer",
+              fontWeight: 900,
               textTransform: "uppercase",
               fontSize: 12,
               letterSpacing: 0.5,
@@ -149,85 +171,51 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
 
       {tab === "facebook" && (
         <div style={{ paddingTop: 12, display: "grid", gap: 10 }}>
-          <div style={{
-            display: "grid",
-            gap: 8,
-            gridTemplateColumns: "minmax(0, 200px) minmax(120px, 160px) minmax(96px, 120px)",
-          }}>
-            <label style={{ display: "grid", gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>City</span>
-              <input value={fbCity} onChange={(e) => { setFbCity(e.target.value); setFbManual(false); }} className="input" />
-            </label>
-
-            <label style={{ display: "grid", gap: 4 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Month</span>
-              <select
-                value={fbMonth}
-                onChange={(e) => { setFbMonth(Number(e.target.value)); setFbManual(false); }}
-                className="input"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {monthName(m)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 4 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Year</span>
-              <input
-                value={fbYear}
-                type="number"
-                onChange={(e) => { setFbYear(Number(e.target.value)); setFbManual(false); }}
-                className="input"
-              />
-            </label>
-          </div>
-
           <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>Extra keywords (optional)</span>
-            <input value={fbKeywords} onChange={(e) => { setFbKeywords(e.target.value); setFbManual(false); }} className="input" />
-          </label>
-
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>
-              Google query (editable){fbManual ? " • manual override" : ""}
-            </span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>Google query</span>
             <textarea
               value={fbQuery}
-              onChange={(e) => { setFbQuery(e.target.value); setFbManual(true); }}
+              onChange={(e) => setFbQuery(e.target.value)}
               rows={3}
               className="input"
               style={{ resize: "vertical" }}
             />
           </label>
 
-          {fbManual && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                onClick={() => { setFbManual(false); setFbQuery(builtFbQuery); }}
-                style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #ddd", background: "#fff", cursor: "pointer", fontWeight: 800 }}
-              >
-                Reset to builder
-              </button>
-              <span style={{ fontSize: 12, opacity: 0.65 }}>Builder is still available above.</span>
-            </div>
-          )}
+          <label style={{ display: "grid", gap: 4, maxWidth: 220 }}>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>Fetch limit</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={5000}
+              value={fbLimit}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) setFbLimit(Math.max(1, Math.min(5000, Math.trunc(n))));
+              }}
+              className="input"
+            />
+          </label>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <label style={{ display: "grid", gap: 4 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Fetch limit</span>
-              <input
-                value={fbLimit}
-                type="number"
-                min={1}
-                max={100}
-                onChange={(e) => setFbLimit(Number(e.target.value))}
-                className="input"
-                style={{ width: 140 }}
-              />
-            </label>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setFbQuery(suggestedQuery)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                background: "#fff",
+                cursor: "pointer",
+                fontWeight: 900,
+              }}
+            >
+              Use suggested query
+            </button>
+            <span style={{ fontSize: 12, opacity: 0.65 }}>
+              Default: city “Warszawa”, month “{monthNamePl(now.getMonth() + 1)}”, year {now.getFullYear()}.
+            </span>
           </div>
         </div>
       )}
@@ -237,36 +225,37 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
           <label style={{ display: "grid", gap: 4 }}>
             <span style={{ fontSize: 12, opacity: 0.7 }}>ICS URL</span>
             <input value={icsUrl} onChange={(e) => setIcsUrl(e.target.value)} className="input" />
-            {!icsUrlOk && <span style={{ fontSize: 12, color: "#b00020" }}>URL must start with http:// or https://</span>}
+            {!icsUrlOk && <span style={{ fontSize: 12, color: "crimson" }}>Invalid URL</span>}
           </label>
 
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <label style={{ display: "grid", gap: 4 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Fetch limit</span>
-              <input
-                value={icsLimit}
-                type="number"
-                min={1}
-                max={5000}
-                onChange={(e) => setIcsLimit(Number(e.target.value))}
-                className="input"
-                style={{ width: 140 }}
-              />
-            </label>
+          <label style={{ display: "grid", gap: 4, maxWidth: 220 }}>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>Fetch limit</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={5000}
+              value={icsLimit}
+              onChange={(e) => setIcsLimit(Number(e.target.value))}
+              className="input"
+            />
+          </label>
 
-            <label style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 18 }}>
-              <input type="checkbox" checked={icsFutureOnly} onChange={(e) => setIcsFutureOnly(e.target.checked)} />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Future only</span>
-              <span style={{ fontSize: 12, opacity: 0.65 }}>(skip past events)</span>
-            </label>
-          </div>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={icsFutureOnly}
+              onChange={(e) => setIcsFutureOnly(e.target.checked)}
+            />
+            <span style={{ fontSize: 13 }}>Import future events only</span>
+          </label>
         </div>
       )}
 
       {tab === "excel" && (
         <div style={{ paddingTop: 12, display: "grid", gap: 10 }}>
           <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>Excel file (.xlsx/.xls)</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>Excel file (.xlsx)</span>
             <input
               type="file"
               accept=".xlsx,.xls"
@@ -274,54 +263,57 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
             />
           </label>
 
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>Row limit</span>
+          <label style={{ display: "grid", gap: 4, maxWidth: 220 }}>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>Fetch limit</span>
             <input
-              value={excelLimit}
               type="number"
+              inputMode="numeric"
               min={1}
               max={5000}
+              value={excelLimit}
               onChange={(e) => setExcelLimit(Number(e.target.value))}
               className="input"
-              style={{ width: 140 }}
             />
           </label>
-
-          <div style={{ fontSize: 12, opacity: 0.7, lineHeight: 1.4 }}>
-            Supported columns (case-insensitive): <code>title</code>, <code>description</code>, <code>startAt</code> /
-            <code>start</code> / <code>date</code>, <code>endAt</code> / <code>end</code>, <code>place</code> /
-            <code>location</code> / <code>address</code>, <code>city</code>, <code>countryCode</code>, <code>lat</code>,{" "}
-            <code>lng</code>, <code>sourceUrl</code>, <code>sourceId</code>.
-          </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 12 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 8 }}>
         <button
+          type="button"
           onClick={runImport}
           disabled={running || (tab === "ics" && !icsUrlOk)}
           style={{
-            padding: "9px 12px",
+            padding: "10px 14px",
             borderRadius: 12,
-            border: "1px solid #ddd",
-            background: running ? "#f3f3f3" : "#111",
-            color: running ? "#111" : "#fff",
-            fontWeight: 900,
+            border: "1px solid #111",
+            background: "#111",
+            color: "#fff",
             cursor: running ? "default" : "pointer",
+            fontWeight: 900,
           }}
         >
-          {running ? "Running..." : "Run import"}
+          {running ? "Importing…" : "Run import"}
         </button>
 
-        {error && <span style={{ color: "#b00020", fontWeight: 800 }}>{error}</span>}
-        {!error && result?.ok && <span style={{ color: "#0b7a0b", fontWeight: 900 }}>Done</span>}
+        {error && <span style={{ color: "crimson", fontSize: 13 }}>{error}</span>}
+        {result && <span style={{ color: "#111", fontSize: 13 }}>Done</span>}
       </div>
 
       {result && (
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900 }}>Result</summary>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 8 }}>{JSON.stringify(result, null, 2)}</pre>
-        </details>
+        <pre
+          style={{
+            marginTop: 10,
+            padding: 12,
+            background: "#fafafa",
+            borderRadius: 12,
+            border: "1px solid #eee",
+            fontSize: 12,
+            overflow: "auto",
+          }}
+        >
+          {JSON.stringify(result, null, 2)}
+        </pre>
       )}
     </div>
   );
