@@ -8,6 +8,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import type { DatesSetArg, EventContentArg, EventMountArg } from "@fullcalendar/core";
 import type { EventItem, DateRange } from "./types";
 import { toFullCalendarEvents } from "./utils";
+import { getEventTimeZone } from "./time";
 
 type Props = {
   items: EventItem[];
@@ -16,20 +17,39 @@ type Props = {
 };
 
 function formatDateTimeRange(arg: EventContentArg) {
-  const start = arg.event.start;
-  const end = arg.event.end;
+  const ep: any = arg.event.extendedProps ?? {};
+  const timeZone = getEventTimeZone(ep);
 
-  if (!start) return "";
+  const startIso: string | null = ep?.startAt ?? (arg.event.start ? arg.event.start.toISOString() : null);
+  const endIso: string | null = ep?.endAt ?? (arg.event.end ? arg.event.end.toISOString() : null);
 
-  // Date + time start
-  const dateStr = start.toLocaleDateString("en-us", { year: "numeric", month: "2-digit", day: "2-digit" });
-  const startTime = start.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+  if (!startIso) return "";
 
-  // No end - show only time start
-  if (!end) return `${dateStr} ${startTime}`;
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : null;
 
-  const endTime = end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-  return `${startTime} ${endTime}`;
+  const dateStr = start.toLocaleDateString("pl-PL", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone,
+  });
+
+  const startTime = start.toLocaleTimeString("pl-PL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  });
+
+  if (!end) return `${startTime}`;
+
+  const endTime = end.toLocaleTimeString("pl-PL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  });
+
+  return `${startTime}–${endTime}`;
 }
 
 export default function CalendarPanel({ items, onRangeChange, onEventFocus }: Props) {
