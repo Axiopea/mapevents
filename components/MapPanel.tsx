@@ -228,7 +228,7 @@ export default function MapPanel({
           timeZone: tz,
         });
 
-        const tSt = d.toLocaleTimeString("en-us", {
+        const tSt = d.toLocaleTimeString("pl-PL", {
           hour: "2-digit",
           minute: "2-digit",
           timeZone: tz,
@@ -408,9 +408,12 @@ export default function MapPanel({
     });
 
     const end = e.endAt ? new Date(e.endAt) : null;
+    const evEndDate = end ? end.toLocaleDateString("pl-pl", { timeZone: tz }) : null;
     const endTime = end
       ? end.toLocaleTimeString("pl-pl", { hour: "2-digit", minute: "2-digit", timeZone: tz })
       : "";
+
+    const endTimeDisplay = evDate === evEndDate ? endTime : `${evEndDate} ${endTime}`;
 
     const st = (e as any).status as string | undefined;
     const canEdit = admin && (st === "draft" || st === "pending");
@@ -461,7 +464,7 @@ export default function MapPanel({
             ${statusBadge(st)}
           </div>
           <div style="margin-top:4px">${escapeHtml(e.city)}${e.place ? " · " + escapeHtml(e.place) : ""}</div>
-          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTime : ""}</div>
+          <div style="opacity:.8;margin-top:6px">${evDate} ${startTime}${endTime ? " - " + endTimeDisplay : ""}</div>
           ${sourceLink}
           ${editDeleteControls}
           ${controls}
@@ -918,7 +921,7 @@ export default function MapPanel({
       const dayToEvent: EventItem[] = [];
 
       for (const ev of events) {
-        const dayKey = new Date(ev.startAt).toLocaleDateString("en-us", { timeZone: tz });
+        const dayKey = new Date(ev.startAt).toLocaleDateString("en-US", { timeZone: tz });
         if (!uniqueDays.includes(dayKey)) {
           uniqueDays.push(dayKey);
           dayToEvent.push(ev);
@@ -932,10 +935,10 @@ export default function MapPanel({
         .map((ev, idx) => {
           const d = new Date(ev.startAt);
           const mon = d
-            .toLocaleDateString("en-us", { month: "short", timeZone: tz })
+            .toLocaleDateString("en-US", { month: "short", timeZone: tz })
             .replace(".", "")
             .toUpperCase();
-          const day = d.toLocaleDateString("pl-PL", { day: "2-digit", timeZone: tz });
+          const day = d.toLocaleDateString("en-US", { day: "2-digit", timeZone: tz });
 
           const dx = idx * 8;
           const dy = idx * 3;
