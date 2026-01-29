@@ -96,6 +96,8 @@ export default function MapPanel({
   const [addMode, setAddMode] = useState(false);
   const draftMarkerRef = useRef<maplibregl.Marker | null>(null);
   const draftLngLatRef = useRef<{ lng: number; lat: number } | null>(null);
+  // Country code resolved from the clicked coordinates (reverse geocode).
+  const draftCountryCodeRef = useRef<string | null>(null);
 
   // Popup event listeners cleanup
   const popupListenersAbortRef = useRef<AbortController | null>(null);
@@ -730,6 +732,7 @@ export default function MapPanel({
 
       const { lng, lat } = ev.lngLat;
       draftLngLatRef.current = { lng, lat };
+      draftCountryCodeRef.current = null;
 
       draftMarkerRef.current?.remove();
       closePopup();
@@ -793,6 +796,7 @@ export default function MapPanel({
             const j = await r.json();
             if (inputCity && !inputCity.value && j.city) inputCity.value = j.city;
             if (inputPlace && !inputPlace.value && j.place) inputPlace.value = j.place;
+            if (j.countryCode) draftCountryCodeRef.current = String(j.countryCode);
           } catch {}
         })();
 
@@ -805,6 +809,7 @@ export default function MapPanel({
           draftMarkerRef.current?.remove();
           draftMarkerRef.current = null;
           draftLngLatRef.current = null;
+          draftCountryCodeRef.current = null;
         });
 
         form?.addEventListener("submit", async (e) => {
@@ -856,7 +861,8 @@ export default function MapPanel({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 title,
-                countryCode: countryCode || undefined,
+                // Prefer country resolved from coordinates; fall back to selected country (if any).
+                countryCode: draftCountryCodeRef.current || countryCode || undefined,
                 city,
                 place: place || null,
                 startAt: startIso,
@@ -876,6 +882,7 @@ export default function MapPanel({
             draftMarkerRef.current?.remove();
             draftMarkerRef.current = null;
             draftLngLatRef.current = null;
+            draftCountryCodeRef.current = null;
 
             window.location.reload();
           } catch (err: any) {

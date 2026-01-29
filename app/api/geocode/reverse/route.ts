@@ -33,6 +33,9 @@ export async function GET(req: Request) {
   const data: any = await res.json();
 
   const addr = data?.address ?? {};
+  // Nominatim returns ISO-3166 alpha-2 in lowercase (e.g. "pl").
+  const countryCodeRaw = (addr.country_code || "") as string;
+  const countryCode = countryCodeRaw ? String(countryCodeRaw).toUpperCase() : "";
   const city =
     addr.city ||
     addr.town ||
@@ -48,6 +51,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     city,
     place,
+    countryCode,
     displayName: data?.display_name ?? "",
     raw: data,
   });
