@@ -94,16 +94,39 @@ async function fetchICSEventsFrom(icsUrl: string, fetchLimit: number, futureOnly
   return { results: out, fetchedCount: fetched, skippedCount: skipped, geocodedCount: geocoded };
 }
 
-export async function syncIcs(icsUrl: string, fetchLimit: number, futureOnly: boolean = false) {
+export async function syncIcs(
+  icsUrl: string,
+  fetchLimit: number,
+  futureOnly: boolean = false,
+  countryCode?: string | null
+) {
   const run = await prisma.syncRun.create({
     data: { source: "other" },
   });
 
-  const { results, fetchedCount, skippedCount, geocodedCount } = await fetchICSEventsFrom(icsUrl, fetchLimit, futureOnly);
+  const { results, fetchedCount, skippedCount, geocodedCount } = await fetchICSEventsFrom(
+    icsUrl,
+    fetchLimit,
+    futureOnly
+  );
 
-  const { created, updated } = await importEvents(results, run.id, fetchedCount, skippedCount);
+  const wanted = (countryCode || "").toUpperCase().trim();
+  const filtered = wanted ? results.filter((e) => (e.countryCode || "").toUpperCase() === wanted) : results;
+  const filteredOut = Math.max(0, results.length - filtered.length);
+
+  const { created, updated } = await importEvents(filtered, run.id, fetchedCount, skippedCount + filteredOut);
 
   console.info("ICS sync finished");
 
-  return { ok: true, fetchedCount, geocodedCount, created, updated, skippedCount };
+  return {
+    ok: true,
+    fetchedCount,
+    geocodedCount,
+    created,
+    updated,
+    skippedCount: skippedCount + filteredOut,
+    acceptedCount: filtered.length,
+    filteredOutCount: filteredOut,
+    countryCode: wanted || null,
+  };
 }

@@ -13,6 +13,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
   items: EventItem[];
+  onEventCreated?: (item: EventItem) => void;
+  /** Selected country code (ISO-3166 alpha-2). Used for creating new manual events. */
+  countryCode?: string | null;
   focusId?: string | null;
   onMarkerClick?: (id: string) => void;
   /** Enables admin-only UI: add event + approve/reject controls */
@@ -65,9 +68,11 @@ type ActivePopup =
 
 export default function MapPanel({
   items,
+  countryCode,
   focusId,
   onMarkerClick,
   admin = false,
+  onEventCreated,
   onEventDeleted,
   onEventStatusChanged,
   onEventEdited,
@@ -93,6 +98,8 @@ export default function MapPanel({
   const [addMode, setAddMode] = useState(false);
   const draftMarkerRef = useRef<maplibregl.Marker | null>(null);
   const draftLngLatRef = useRef<{ lng: number; lat: number } | null>(null);
+  // Country code resolved from the clicked coordinates (reverse geocode).
+  const draftCountryCodeRef = useRef<string | null>(null);
 
   // Popup event listeners cleanup
   const popupListenersAbortRef = useRef<AbortController | null>(null);
@@ -105,6 +112,12 @@ export default function MapPanel({
   useEffect(() => {
     addModeRef.current = addMode;
   }, [addMode]);
+
+  const countryCodeRef = useRef<string | null | undefined>(countryCode);
+
+  useEffect(() => {
+    countryCodeRef.current = countryCode;
+  }, [countryCode]);
 
   useEffect(() => {
     if (!admin) setAddMode(false);
@@ -727,6 +740,7 @@ export default function MapPanel({
 
       const { lng, lat } = ev.lngLat;
       draftLngLatRef.current = { lng, lat };
+      draftCountryCodeRef.current = null;
 
       draftMarkerRef.current?.remove();
       closePopup();
@@ -790,6 +804,7 @@ export default function MapPanel({
             const j = await r.json();
             if (inputCity && !inputCity.value && j.city) inputCity.value = j.city;
             if (inputPlace && !inputPlace.value && j.place) inputPlace.value = j.place;
+            if (j.countryCode) draftCountryCodeRef.current = String(j.countryCode);
           } catch {}
         })();
 
@@ -802,6 +817,7 @@ export default function MapPanel({
           draftMarkerRef.current?.remove();
           draftMarkerRef.current = null;
           draftLngLatRef.current = null;
+          draftCountryCodeRef.current = null;
         });
 
         form?.addEventListener("submit", async (e) => {
@@ -853,6 +869,8 @@ export default function MapPanel({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 title,
+                // Prefer country resolved from coordinates; fall back to selected country (if any).
+                countryCode: draftCountryCodeRef.current || countryCodeRef.current || undefined,
                 city,
                 place: place || null,
                 startAt: startIso,
@@ -863,17 +881,22 @@ export default function MapPanel({
               }),
             });
 
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}));
-              throw new Error(j?.error || `HTTP ${res.status}`);
-            }
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+
+            const createdItem = (j as any)?.item as EventItem | undefined;
 
             closePopup();
             draftMarkerRef.current?.remove();
             draftMarkerRef.current = null;
             draftLngLatRef.current = null;
+            draftCountryCodeRef.current = null;
 
-            window.location.reload();
+            if (onEventCreated && createdItem) {
+              onEventCreated(createdItem);
+            } else {
+              window.location.reload();
+            }
           } catch (err: any) {
             if (errBox) errBox.textContent = err?.message || "Failed to save";
           }

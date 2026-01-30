@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { syncFacebook } from "@/scripts/sync-facebook";
 import { syncIcs } from "@/scripts/sync-ics";
 import { syncExcel } from "@/scripts/sync-excel";
+import { normalizeCountryCode } from "@/lib/countries";
 
 export const runtime = "nodejs";
 
@@ -36,21 +37,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "Missing file" }, { status: 400 });
       }
       const limit = parsePositiveInt(fd.get("limit"), 500);
+      const countryCode = normalizeCountryCode(fd.get("countryCode"));
 
       const buf = Buffer.from(await file.arrayBuffer());
-      const result = await syncExcel({ buffer: buf, filename: file.name, fetchLimit: limit });
+      const result = await syncExcel({ buffer: buf, filename: file.name, fetchLimit: limit, countryCode });
       return NextResponse.json(result);
     }
 
     // JSON: facebook / ics
     const body = await req.json();
+    const countryCode = normalizeCountryCode(body?.countryCode);
 
     const type = body?.type;
     if (type === "facebook") {
       const query = String(body?.query ?? "").trim();
       if (!query) return NextResponse.json({ ok: false, error: "Missing query" }, { status: 400 });
       const limit = parsePositiveInt(body?.limit, 50);
-      const result = await syncFacebook(query, limit);
+      const result = await syncFacebook(query, limit, countryCode);
       return NextResponse.json(result);
     }
 
@@ -67,13 +70,14 @@ export async function POST(req: Request) {
       // lightweight server-side validation hint
       const urlLooksLikeIcs = v.url.pathname.toLowerCase().endsWith(".ics");
 
-      const result = await syncIcs(v.url.toString(), limit, futureOnly);
+      const result = await syncIcs(v.url.toString(), limit, futureOnly, countryCode);
 
       return NextResponse.json({
         ...result,
         url: v.url.toString(),
         warning: urlLooksLikeIcs ? null : "URL does not end with .ics (continuing anyway)",
         futureOnly,
+        countryCode: countryCode ?? null,
       });
     }
 

@@ -10,6 +10,7 @@ type SyncExcelInput = {
   buffer: Buffer;
   filename?: string;
   fetchLimit: number;
+  countryCode?: string | null;
 };
 
 function asText(v: unknown): string {
@@ -66,6 +67,7 @@ export async function syncExcel(input: SyncExcelInput) {
   const fetchLimit = Math.min(5000, Math.max(1, input.fetchLimit || rows.length || 1));
 
   const out: ExternalEvent[] = [];
+  const wantedCountry = (input.countryCode || "").toUpperCase().trim();
 
   let fetched = 0;
   let skipped = 0;
@@ -126,6 +128,11 @@ export async function syncExcel(input: SyncExcelInput) {
       explicitSourceId ??
       `excel:${hashId([title, startAt.toISOString(), place, city, countryCode, input.filename ?? "unknown"])}`;
 
+    if (wantedCountry && countryCode !== wantedCountry) {
+      skipped++;
+      continue;
+    }
+
     out.push({
       title,
       description,
@@ -157,5 +164,6 @@ export async function syncExcel(input: SyncExcelInput) {
     updated,
     skippedCount: skipped,
     acceptedCount: out.length,
+    countryCode: wantedCountry || null,
   };
 }

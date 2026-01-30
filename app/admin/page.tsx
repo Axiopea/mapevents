@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import CalendarPanel from "@/components/CalendarPanel";
+import CountrySelect from "@/components/CountrySelect";
 import MapPanel from "@/components/MapPanel";
 import SplitView from "@/components/SplitView";
 import AdminImportPanel from "@/components/AdminImportPanel";
@@ -11,6 +12,7 @@ export default function AdminPage() {
   const [items, setItems] = useState<EventItem[]>([]);
   const [range, setRange] = useState<DateRange | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [countryCode, setCountryCode] = useState<string | null>(null);
 
   const [statusMode, setStatusMode] = useState<"approved" | "notApproved">("approved");
   const [reloadToken, setReloadToken] = useState(0);
@@ -21,6 +23,7 @@ export default function AdminPage() {
       const url = new URL("/api/events", window.location.origin);
       if (range?.from) url.searchParams.set("from", range.from);
       if (range?.to) url.searchParams.set("to", range.to);
+      if (countryCode) url.searchParams.set("country", countryCode);
       url.searchParams.set("statusMode", statusMode);
 
       const res = await fetch(url.toString(), { cache: "no-store" });
@@ -28,7 +31,7 @@ export default function AdminPage() {
       setItems(data.items ?? []);
     };
     load();
-  }, [range, statusMode, reloadToken]);
+  }, [range, statusMode, countryCode, reloadToken]);
 
   return (
     <div className="appShell">
@@ -36,6 +39,9 @@ export default function AdminPage() {
         <div className="topbarLeft">
           <strong>Map events</strong>
           <span className="topbarHint">Admin</span>
+        </div>
+        <div className="topbarRight" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <CountrySelect value={countryCode} onChange={setCountryCode} />
         </div>
       </header>
 
@@ -92,7 +98,11 @@ export default function AdminPage() {
 
         {showImportPanel && (
           <div id="admin-import-panel">
-            <AdminImportPanel onImported={() => setReloadToken((x) => x + 1)} />
+            <AdminImportPanel
+              countryCode={countryCode}
+              onCountryChange={setCountryCode}
+              onImported={() => setReloadToken((x) => x + 1)}
+            />
           </div>
         )}
 
@@ -117,8 +127,13 @@ export default function AdminPage() {
                 <MapPanel
                   admin
                   items={items}
+                  countryCode={countryCode}
                   focusId={focusId}
                   onMarkerClick={(id) => setFocusId(id)}
+                  onEventCreated={(item) => {
+                    setReloadToken((x) => x + 1);
+                    if (item?.id) setFocusId(item.id);
+                  }}
                   onEventDeleted={(id) => {
                     setItems((prev) => prev.filter((x) => x.id !== id));
                   }}

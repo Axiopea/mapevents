@@ -1,6 +1,7 @@
 export type EventItem = {
   id: string;
   title: string;
+  countryCode: string; // ISO-3166 alpha-2, e.g. "PL"
   city: string;
   place: string | null;
   lat: number;

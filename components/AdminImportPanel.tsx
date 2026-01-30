@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import CountrySelect from "@/components/CountrySelect";
 
 type Tab = "facebook" | "ics" | "excel";
 
@@ -47,8 +48,16 @@ function isValidHttpUrl(raw: string) {
   }
 }
 
-export default function AdminImportPanel(props: { onImported?: () => void }) {
+export default function AdminImportPanel(props: {
+  onImported?: () => void;
+  countryCode?: string | null;
+  onCountryChange?: (countryCode: string | null) => void;
+}) {
   const [tab, setTab] = useState<Tab>("facebook");
+
+  const [localCountryCode, setLocalCountryCode] = useState<string | null>(null);
+  const countryCode = props.countryCode ?? localCountryCode;
+  const setCountryCode = props.onCountryChange ?? setLocalCountryCode;
 
   // Facebook
   const now = new Date();
@@ -100,13 +109,13 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
         res = await fetch("/api/admin/import", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ type: "facebook", query: fbQuery, limit: fbLimit }),
+          body: JSON.stringify({ type: "facebook", query: fbQuery, limit: fbLimit, countryCode }),
         });
       } else if (tab === "ics") {
         res = await fetch("/api/admin/import", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ type: "ics", url: icsUrl, limit: icsLimit, futureOnly: icsFutureOnly }),
+          body: JSON.stringify({ type: "ics", url: icsUrl, limit: icsLimit, futureOnly: icsFutureOnly, countryCode }),
         });
       } else {
         if (!excelFile) throw new Error("Choose an Excel file first");
@@ -114,6 +123,7 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
         const fd = new FormData();
         fd.set("file", excelFile);
         fd.set("limit", String(excelLimit));
+        if (countryCode) fd.set("countryCode", countryCode);
 
         res = await fetch("/api/admin/import", { method: "POST", body: fd });
       }
@@ -167,6 +177,13 @@ export default function AdminImportPanel(props: { onImported?: () => void }) {
             {t}
           </button>
         ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+        <CountrySelect value={countryCode} onChange={setCountryCode} />
+        <span style={{ fontSize: 12, opacity: 0.65, paddingBottom: 6 }}>
+          When a country is selected, import will keep only events with that country code.
+        </span>
       </div>
 
       {tab === "facebook" && (
