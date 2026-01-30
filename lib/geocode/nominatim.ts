@@ -253,3 +253,73 @@ export async function reverseGeocodeNominatimCity(
   return { city, raw: { address: addr, result: json } };
 }
 
+/**
+ * Reverse geocode coordinates -> best-effort city/town/village + 2-letter country code.
+ *
+ * Uses the same GeoCache table by storing entries under a synthetic query key:
+ *   revcc:<latRounded>,<lngRounded>
+ */
+export async function reverseGeocodeNominatimCityCountry(
+  lat: number,
+  lng: number
+): Promise<{ city: string | null; countryCode: string | null; raw?: unknown } | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  // ~11m precision; good enough for city/country lookup and keeps cache effective.
+  const key = `revcc:${lat.toFixed(4)},${lng.toFixed(4)}`;
+
+  const cached = await prisma.geoCache.findUnique({ where: { query: key } });
+  if (cached) {
+    const raw = cached.raw as any;
+    const city = typeof raw?.city === "string" ? raw.city : null;
+    const cc = typeof raw?.countryCode === "string" ? raw.countryCode : null;
+    return { city, countryCode: cc, raw };
+  }
+
+  await sleep(1100);
+
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("zoom", "10");
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lng));
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": "MapEvents/1.0 (cron; contact: r.bahirau@axiopea.com)",
+      "Accept-Language": "en",
+    },
+  });
+
+  if (!res.ok) {
+    await prisma.geoCache.upsert({
+      where: { query: key },
+      create: { query: key, raw: { error: `HTTP ${res.status}` } },
+      update: { raw: { error: `HTTP ${res.status}` } },
+    });
+    return null;
+  }
+
+  const json = (await res.json().catch(() => null)) as NominatimReverseResult | null;
+  const addr = (json?.address ?? {}) as Record<string, unknown>;
+
+  const city =
+    (typeof addr.city === "string" ? (addr.city as string) : null) ||
+    (typeof addr.town === "string" ? (addr.town as string) : null) ||
+    (typeof addr.village === "string" ? (addr.village as string) : null) ||
+    (typeof addr.municipality === "string" ? (addr.municipality as string) : null) ||
+    (typeof addr.county === "string" ? (addr.county as string) : null) ||
+    null;
+
+  const countryCodeRaw = typeof addr.country_code === "string" ? (addr.country_code as string) : null;
+  const countryCode = countryCodeRaw && countryCodeRaw.length === 2 ? countryCodeRaw.toUpperCase() : null;
+
+  await prisma.geoCache.upsert({
+    where: { query: key },
+    create: { query: key, raw: { city, countryCode, address: addr, result: json } as any },
+    update: { raw: { city, countryCode, address: addr, result: json } as any },
+  });
+
+  return { city, countryCode, raw: { address: addr, result: json } };
+}
