@@ -13,6 +13,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 type Props = {
   items: EventItem[];
+  onEventCreated?: (item: EventItem) => void;
   /** Selected country code (ISO-3166 alpha-2). Used for creating new manual events. */
   countryCode?: string | null;
   focusId?: string | null;
@@ -71,6 +72,7 @@ export default function MapPanel({
   focusId,
   onMarkerClick,
   admin = false,
+  onEventCreated,
   onEventDeleted,
   onEventStatusChanged,
   onEventEdited,
@@ -110,6 +112,12 @@ export default function MapPanel({
   useEffect(() => {
     addModeRef.current = addMode;
   }, [addMode]);
+
+  const countryCodeRef = useRef<string | null | undefined>(countryCode);
+
+  useEffect(() => {
+    countryCodeRef.current = countryCode;
+  }, [countryCode]);
 
   useEffect(() => {
     if (!admin) setAddMode(false);
@@ -862,7 +870,7 @@ export default function MapPanel({
               body: JSON.stringify({
                 title,
                 // Prefer country resolved from coordinates; fall back to selected country (if any).
-                countryCode: draftCountryCodeRef.current || countryCode || undefined,
+                countryCode: draftCountryCodeRef.current || countryCodeRef.current || undefined,
                 city,
                 place: place || null,
                 startAt: startIso,
@@ -873,10 +881,10 @@ export default function MapPanel({
               }),
             });
 
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}));
-              throw new Error(j?.error || `HTTP ${res.status}`);
-            }
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+
+            const createdItem = (j as any)?.item as EventItem | undefined;
 
             closePopup();
             draftMarkerRef.current?.remove();
@@ -884,7 +892,11 @@ export default function MapPanel({
             draftLngLatRef.current = null;
             draftCountryCodeRef.current = null;
 
-            window.location.reload();
+            if (onEventCreated && createdItem) {
+              onEventCreated(createdItem);
+            } else {
+              window.location.reload();
+            }
           } catch (err: any) {
             if (errBox) errBox.textContent = err?.message || "Failed to save";
           }

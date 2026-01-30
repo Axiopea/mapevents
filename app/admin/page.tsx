@@ -130,6 +130,10 @@ export default function AdminPage() {
                   countryCode={countryCode}
                   focusId={focusId}
                   onMarkerClick={(id) => setFocusId(id)}
+                  onEventCreated={(item) => {
+                    setReloadToken((x) => x + 1);
+                    if (item?.id) setFocusId(item.id);
+                  }}
                   onEventDeleted={(id) => {
                     setItems((prev) => prev.filter((x) => x.id !== id));
                   }}
