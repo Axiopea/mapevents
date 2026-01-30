@@ -48,6 +48,10 @@ body {
   align-items: baseline;
 }
 
+.topbarRight {
+  margin-left: auto;
+}
+
 .topbarHint {
   font-size: 12px;
   opacity: 0.7;
